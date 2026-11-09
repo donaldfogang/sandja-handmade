@@ -6,17 +6,19 @@ import React, { useState, useMemo } from 'react';
 export interface Product {
   id: number;
   title: string;
-  category: 'table' | 'mode' | 'deco';
+  category: 'table' | 'mode' | 'deco' | 'urgence';
   price: number;
   image: string;
   description: string;
+  isUrgent?: boolean; // Pour identifier les packs d'urgence
 }
 
 export const CATEGORIES = [
   { key: 'all', label: 'Tous' },
   { key: 'table', label: 'Arts de la table' },
   { key: 'mode', label: 'Accessoires & Mode' },
-  { key: 'deco', label: 'Décoration' }
+  { key: 'deco', label: 'Décoration' },
+  { key: 'urgence', label: '⚡ Packs d’Urgence (Dispo immédiate)' }
 ] as const;
 
 export const CONTACT_INFO = {
@@ -33,7 +35,7 @@ export const PRODUCTS: Product[] = [
   // Décoration (3 articles)
   { id: 1, title: "Décoration d'intérieur Motif Africain 1", category: "deco", price: 12000, image: "/images/deco/deco1.jpg", description: "Accessoire de décoration façonné à la main aux motifs raffinés." },
   { id: 2, title: "Élément Décoratif Artisanat 2", category: "deco", price: 15000, image: "/images/deco/deco2.jpg", description: "Création originale pour apporter du cachet à votre espace." },
-  { id: 3, title: "Accessoire Déco Sandja", category: "deco", price: 10000, image: "/images/deco/deco3.jpg", description: "Finitions soignées et textiles de qualité." },
+  { id: 3, title: "Accessoire Déco Sandja", category: "deco", price: 10000, image: "/images/deco/deco1.jpg", description: "Finitions soignées et textiles de qualité." },
 
   // Arts de la Table (16 articles)
   ...Array.from({ length: 16 }, (_, i) => ({
@@ -93,7 +95,12 @@ export const PRODUCTS: Product[] = [
     price: 12500,
     image: `/images/mode/ensemble-bebe${i + 1}.jpg`,
     description: "Tenue douce et confortable pour enfant en coton imprimé."
-  }))
+  })),
+
+  // --- PACKS D'URGENCE (Disponibles immédiatement pour les clients pressés) ---
+  { id: 91, title: "Pack Urgence - Set de Table Express", category: "urgence", price: 20000, image: "/images/table/service-table1.jpg", description: "⚠️ Disponible immédiatement en stock pour départ immédiat.", isUrgent: true },
+  { id: 92, title: "Pack Urgence - Sac & Pochette Express", category: "urgence", price: 16000, image: "/images/mode/sac1.jpg", description: "⚠️ Disponible immédiatement en stock pour départ immédiat.", isUrgent: true },
+  { id: 93, title: "Pack Urgence - Coussin Déco Express", category: "urgence", price: 13000, image: "/images/deco/deco1.jpg", description: "⚠️ Disponible immédiatement en stock pour départ immédiat.", isUrgent: true }
 ];
 
 export default function Home() {
@@ -103,40 +110,34 @@ export default function Home() {
 
   const ITEMS_PER_PAGE = 6;
 
-  // Calcul réactif sécurisé des produits filtrés
+  // Filtrage réactif des produits
   const filteredProducts = useMemo(() => {
     try {
       if (selectedCategory === 'all') return PRODUCTS;
       return PRODUCTS.filter(p => p.category === selectedCategory);
     } catch (err) {
-      console.error("[Sandja App] Erreur lors du filtrage :", err);
+      console.error("[Sandja App] Erreur filtrage :", err);
       setHasError("Erreur lors du filtrage des produits.");
       return [];
     }
   }, [selectedCategory]);
 
-  // Pagination calculée
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const currentProducts = filteredProducts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
-  // Gestionnaire de clic sur les filtres avec logging de sécurité
   const handleCategoryChange = (key: string) => {
     try {
-      console.log(`[Sandja App] Changement de catégorie vers : ${key}`);
       setSelectedCategory(key);
       setCurrentPage(1);
       setHasError(null);
     } catch (err) {
-      console.error("[Sandja App] Erreur changement catégorie :", err);
-      setHasError("Impossible de changer de catégorie pour le moment.");
+      console.error("[Sandja App] Erreur catégorie :", err);
     }
   };
 
-  // Gestionnaire de changement de page
   const handlePageChange = (newPage: number) => {
     try {
-      console.log(`[Sandja App] Changement de page vers : ${newPage}`);
       setCurrentPage(newPage);
       setHasError(null);
       const catalogueEl = document.getElementById('catalogue');
@@ -145,30 +146,36 @@ export default function Home() {
       }
     } catch (err) {
       console.error("[Sandja App] Erreur pagination :", err);
-      setHasError("Impossible de changer de page.");
     }
   };
 
-  // Image de remplacement si le fichier n'existe pas dans public/
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const target = e.currentTarget;
-    target.onerror = null; // Évite une boucle infinie
+    target.onerror = null;
     target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="400" height="300" fill="%23f3f4f6"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-family="sans-serif" font-size="16">Image Sandja Non Disponible</text></svg>';
   };
 
-  const getWhatsAppLink = (productTitle: string, price: number, imageUrl: string) => {
-    const formattedPrice = price.toLocaleString('fr-FR');
+  // Génération du lien WhatsApp avec redirection directe sur l'article et mention des délais
+  const getWhatsAppLink = (product: Product) => {
+    const formattedPrice = product.price.toLocaleString('fr-FR');
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const fullImageUrl = `${origin}${imageUrl}`;
     
-    const message = `Bonjour Sandja Handmade, je suis intéressé(e) par votre création : "${productTitle}" (${formattedPrice} FCFA).\n\nLien de l'image : ${fullImageUrl}\n\nEst-elle disponible ?`;
+    // Combine l'URL de l'image du produit et ajoute l'ancre #produit-ID à la fin
+    const productImageUrlWithAnchor = `${origin}${product.image}#produit-${product.id}`;
+    
+    let message = '';
+    if (product.isUrgent) {
+      message = `Bonjour Sandja Handmade, je suis intéressé(e) par le pack d'urgence disponible immédiatement : "${product.title}" (${formattedPrice} FCFA).\n\nLien de l'article : ${productImageUrlWithAnchor}\n\nEst-il toujours disponible pour un retrait rapide ?`;
+    } else {
+      message = `Bonjour Sandja Handmade, je suis intéressé(e) par votre création sur commande : "${product.title}" (${formattedPrice} FCFA).\n\nLien de l'article : ${productImageUrlWithAnchor}\n\nJe souhaite passer commande (délai indicatif de 12 jours). Est-ce possible ?`;
+    }
+
     return `https://wa.me/${CONTACT_INFO.whatsapp}?text=${encodeURIComponent(message)}`;
   };
 
   return (
     <div className="bg-[#FAF8F5] text-stone-800 font-sans antialiased flex flex-col min-h-screen">
       
-      {/* ALERTE SÉCURITÉ / DÉBOGAGE */}
       {hasError && (
         <div className="bg-rose-600 text-white p-3 text-center text-xs font-semibold sticky top-0 z-[60]">
           ⚠️ {hasError} — <button onClick={() => window.location.reload()} className="underline">Recharger la page</button>
@@ -185,6 +192,7 @@ export default function Home() {
 
           <nav className="hidden md:flex items-center space-x-8 text-sm font-medium text-stone-700">
             <a href="#catalogue" className="hover:text-[#C85A32] transition">Créations</a>
+            <a href="#urgence" className="text-[#C85A32] font-bold hover:underline transition">⚡ Packs d’Urgence</a>
             <a href="#concept" className="hover:text-[#C85A32] transition">Savoir-faire</a>
             <a href="#contact" className="hover:text-[#C85A32] transition">Contact</a>
           </nav>
@@ -206,17 +214,20 @@ export default function Home() {
       <section className="relative bg-[#1C1917] text-white py-20 sm:py-28 px-4 overflow-hidden">
         <div className="max-w-4xl mx-auto text-center relative z-10">
           <span className="inline-block px-3 py-1 bg-[#C85A32]/20 text-[#C85A32] border border-[#C85A32]/40 rounded-full text-xs font-semibold tracking-wider uppercase mb-6">
-            Créations Authentiques & Artisanales
+            Créations Authentiques & Sur Commande (Délai : 12 jours)
           </span>
           <h1 className="font-serif text-4xl sm:text-6xl font-bold leading-tight mb-6">
             Promouvoir la beauté à l’africaine au quotidien.
           </h1>
           <p className="text-stone-300 text-lg sm:text-xl font-light mb-10 max-w-2xl mx-auto leading-relaxed">
-            Accessoires de mode, linge de maison et décoration façonnés à partir de tissus aux motifs africains.
+            Accessoires de mode, linge de maison et décoration façonnés à partir de tissus aux motifs africains. Réalisations sur commande sous 12 jours ou packs disponibles immédiatement.
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <a href="#catalogue" className="bg-[#C85A32] hover:bg-[#b04b25] text-white px-8 py-3.5 rounded-full font-medium transition shadow-lg">
               Découvrir les réalisations
+            </a>
+            <a href="#urgence" className="bg-amber-600 hover:bg-amber-700 text-white px-8 py-3.5 rounded-full font-medium transition shadow-lg">
+              ⚡ Packs d’Urgence (Dispo immédiate)
             </a>
           </div>
         </div>
@@ -227,7 +238,9 @@ export default function Home() {
         <div className="flex flex-col md:flex-row md:items-end justify-between mb-10">
           <div>
             <h2 className="font-serif text-3xl sm:text-4xl font-bold text-[#1C1917]">Galerie des Réalisations</h2>
-            <p className="text-stone-500 mt-2 text-sm">Cliquez sur un article pour nous contacter directement sur WhatsApp.</p>
+            <p className="text-stone-500 mt-2 text-sm">
+              Toutes nos pièces standard sont faites sur commande (délai de 12 jours). Cliquez sur un article pour commander via WhatsApp.
+            </p>
           </div>
 
           {/* Filtres par Catégorie */}
@@ -249,11 +262,15 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Grille des articles ou Message d'absence d'articles */}
+        {/* Grille des articles ou Message d'absence */}
         {currentProducts.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
             {currentProducts.map((item) => (
-              <div key={item.id} className="bg-white rounded-2xl overflow-hidden border border-stone-200/90 shadow-sm hover:shadow-md transition flex flex-col group justify-between">
+              <div 
+                key={item.id} 
+                id={`produit-${item.id}`}
+                className="bg-white rounded-2xl overflow-hidden border border-stone-200/90 shadow-sm hover:shadow-md transition flex flex-col group justify-between relative scroll-mt-28"
+              >
                 <div>
                   <div className="relative overflow-hidden aspect-[4/3] bg-stone-100">
                     <img
@@ -262,6 +279,15 @@ export default function Home() {
                       onError={handleImageError}
                       className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
                     />
+                    {item.isUrgent ? (
+                      <span className="absolute top-3 left-3 bg-amber-600 text-white text-[11px] font-bold px-3 py-1 rounded-full shadow">
+                        ⚡ Disponible Immédiatement
+                      </span>
+                    ) : (
+                      <span className="absolute top-3 left-3 bg-stone-900/80 text-white text-[11px] font-medium px-3 py-1 rounded-full backdrop-blur-sm">
+                        ⏳ Sur commande (12 jours)
+                      </span>
+                    )}
                   </div>
                   <div className="p-5">
                     <div className="flex items-baseline justify-between gap-2 mb-2">
@@ -276,7 +302,7 @@ export default function Home() {
 
                 <div className="p-5 pt-0">
                   <a
-                    href={getWhatsAppLink(item.title, item.price, item.image)}
+                    href={getWhatsAppLink(item)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-[#25D366] text-white py-3 px-4 rounded-xl text-xs font-semibold tracking-wide transition duration-300 shadow-sm"
@@ -343,23 +369,82 @@ export default function Home() {
         )}
       </section>
 
-      {/* 4. SECTION SAVOIR-FAIRE */}
-      <section id="concept" className="bg-white py-16 border-t border-b border-stone-200">
+      {/* 4. SECTION PACKS D'URGENCE (Mise en avant spéciale pour clients pressés) */}
+      <section id="urgence" className="bg-amber-50/60 py-16 border-t border-b border-amber-200/60">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <span className="inline-block px-3 py-1 bg-amber-600 text-white rounded-full text-xs font-bold uppercase tracking-wider mb-3">
+              ⚡ Service Express
+            </span>
+            <h2 className="font-serif text-3xl font-bold text-stone-900">Packs d’Urgence (Disponibles Immédiatement)</h2>
+            <p className="text-stone-600 text-sm mt-2">
+              Besoin d’un cadeau ou d’une tenue en urgence sans attendre les 12 jours de confection ? Choisissez directement parmi nos pièces en stock prêt-à-partir !
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+            {PRODUCTS.filter(p => p.isUrgent).map((item) => (
+              <div 
+                key={`urgence-${item.id}`}
+                id={`produit-${item.id}`}
+                className="bg-white rounded-2xl overflow-hidden border border-amber-300 shadow-md flex flex-col justify-between group scroll-mt-28"
+              >
+                <div>
+                  <div className="relative overflow-hidden aspect-[4/3] bg-stone-100">
+                    <img
+                      src={item.image}
+                      alt={item.title}
+                      onError={handleImageError}
+                      className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                    />
+                    <span className="absolute top-3 left-3 bg-amber-600 text-white text-[11px] font-bold px-3 py-1 rounded-full shadow">
+                      ⚡ En Stock (Dispo immédiate)
+                    </span>
+                  </div>
+                  <div className="p-5">
+                    <div className="flex items-baseline justify-between gap-2 mb-2">
+                      <h3 className="font-semibold text-lg text-stone-900 leading-snug">{item.title}</h3>
+                      <span className="font-serif font-bold text-[#C85A32] whitespace-nowrap text-base">
+                        {item.price.toLocaleString('fr-FR')} FCFA
+                      </span>
+                    </div>
+                    <p className="text-stone-600 text-xs leading-relaxed mb-4">{item.description}</p>
+                  </div>
+                </div>
+
+                <div className="p-5 pt-0">
+                  <a
+                    href={getWhatsAppLink(item)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white py-3 px-4 rounded-xl text-xs font-semibold tracking-wide transition duration-300 shadow-sm"
+                  >
+                    <span>⚡ Réserver en urgence via WhatsApp</span>
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 5. SECTION SAVOIR-FAIRE */}
+      <section id="concept" className="bg-white py-16 border-b border-stone-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="font-serif text-3xl font-bold text-[#1C1917] mb-4">Un Savoir-Faire Fait Main</h2>
+          <h2 className="font-serif text-3xl font-bold text-[#1C1917] mb-4">Un Savoir-Faire Fait Main & Sur Commande</h2>
           <p className="text-stone-600 max-w-2xl mx-auto text-sm sm:text-base leading-relaxed">
-            Chaque création de Sandja Handmade est confectionnée avec soin et passion. Nous mettons à l'honneur les étoffes et imprimés traditionnels pour créer des pièces uniques et raffinées, adaptées à votre quotidien.
+            Chaque création de Sandja Handmade est confectionnée avec soin et passion. Nos pièces personnalisées nécessitent un délai de confection de 12 jours pour garantir une qualité irréprochable et un souci du détail unique.
           </p>
         </div>
       </section>
 
-      {/* 5. FOOTER / PIED DE PAGE */}
+      {/* 6. FOOTER / PIED DE PAGE */}
       <footer id="contact" className="bg-[#1C1917] text-stone-400 py-16 px-4">
         <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
           <div>
             <h4 className="font-serif text-2xl text-white font-bold mb-4">Sandja Handmade</h4>
             <p className="text-sm leading-relaxed mb-6">
-              Sublimer le patrimoine textile et faire rayonner les motifs africains à travers des créations artisanales uniques.
+              Sublimer le patrimoine textile et faire rayonner les motifs africains à travers des créations artisanales uniques. (Délai standard : 12 jours).
             </p>
             <div className="flex items-center space-x-4 text-white text-sm font-medium">
               <a href={CONTACT_INFO.facebook} target="_blank" rel="noopener noreferrer" className="hover:text-[#C85A32] transition">Facebook</a>
