@@ -158,9 +158,14 @@ export default function Home() {
   // Génération du lien WhatsApp avec redirection directe sur l'article et mention des délais
   const getWhatsAppLink = (product: Product) => {
     const formattedPrice = product.price.toLocaleString('fr-FR');
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
     
-    // Combine l'URL de l'image du produit et ajoute l'ancre #produit-ID à la fin
+    // Récupère l'origine actuelle (ex: https://sandja-handmade.vercel.app ou http://localhost:3000)
+    // Si on est côté serveur ou par sécurité, on met une valeur par défaut ou le domaine Vercel
+    const origin = typeof window !== 'undefined' && window.location.origin 
+      ? window.location.origin 
+      : 'https://sandja-handmade.vercel.app';
+    
+    // Concatène l'URL complète du domaine avec le chemin de l'image et l'ancre
     const productImageUrlWithAnchor = `${origin}${product.image}#produit-${product.id}`;
     
     let message = '';
