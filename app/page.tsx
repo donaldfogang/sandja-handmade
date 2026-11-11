@@ -3,13 +3,12 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import SplashScreen from './SplashScreen';
+import { track } from './lib/track';
 
 // --- CONFIGURATION SUPABASE ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey, {
-  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-});
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // --- TYPES & CONSTANTES (non exportés : un page.tsx ne doit exporter que le composant) ---
 interface Product {
@@ -64,6 +63,11 @@ export default function Home() {
     fetchProducts();
   }, []);
 
+  // Comptage de la visite (une fois par session)
+  useEffect(() => {
+    track('visit');
+  }, []);
+
   const fetchProducts = async () => {
     try {
       setLoading(true);
@@ -98,6 +102,7 @@ export default function Home() {
   const handleCategoryChange = (key: string) => {
     setSelectedCategory(key);
     setCurrentPage(1);
+    track('category_click', { label: key });
   };
 
   const handlePageChange = (page: number) => {
@@ -160,6 +165,7 @@ export default function Home() {
             <div className="flex items-center gap-3">
               <a
                 href={`https://wa.me/${CONTACT_INFO.whatsapp}?text=Bonjour%20Sandja%20Handmade,%20je%20souhaite%20en%20savoir%20plus%20sur%20vos%20créations`}
+                onClick={() => track('whatsapp_general', { label: 'en-tête' })}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={`bg-[#25D366] text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-emerald-600 transition shadow-sm ${focusRing}`}
@@ -320,6 +326,7 @@ export default function Home() {
                   <div className="p-5 pt-0">
                     <a
                       href={getWhatsAppLink(item)}
+                      onClick={() => track('whatsapp_click', { productId: item.id, label: item.title })}
                       target="_blank"
                       rel="noopener noreferrer"
                       className={`w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-[#25D366] text-white py-3 px-4 rounded-xl text-xs font-semibold tracking-wide transition duration-300 shadow-sm ${focusRing}`}
@@ -430,6 +437,7 @@ export default function Home() {
                     <div className="p-5 pt-0">
                       <a
                         href={getWhatsAppLink(item)}
+                      onClick={() => track('whatsapp_click', { productId: item.id, label: item.title })}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={`w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white py-3 px-4 rounded-xl text-xs font-semibold tracking-wide transition shadow-sm ${focusRing}`}
@@ -490,6 +498,7 @@ export default function Home() {
               <div className="flex items-center gap-3 text-sm font-medium">
                 <a
                   href={CONTACT_INFO.facebook}
+                  onClick={() => track('social_click', { label: 'Facebook' })}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-4 py-2 rounded-full border border-stone-700 text-white hover:border-[#C85A32] hover:text-[#C85A32] transition"
@@ -498,6 +507,7 @@ export default function Home() {
                 </a>
                 <a
                   href={CONTACT_INFO.tiktok}
+                  onClick={() => track('social_click', { label: 'TikTok' })}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-4 py-2 rounded-full border border-stone-700 text-white hover:border-[#C85A32] hover:text-[#C85A32] transition"
@@ -524,7 +534,8 @@ export default function Home() {
                 </li>
                 <li>
                   💬 Messenger :{' '}
-                  <a href={CONTACT_INFO.messengerUrl} target="_blank" rel="noopener noreferrer" className="hover:text-white transition">
+                  <a href={CONTACT_INFO.messengerUrl}
+                  onClick={() => track('social_click', { label: 'Messenger' })} target="_blank" rel="noopener noreferrer" className="hover:text-white transition">
                     {CONTACT_INFO.messenger}
                   </a>
                 </li>
@@ -536,6 +547,7 @@ export default function Home() {
               <p className="text-sm mb-4">Discutez immédiatement de vos projets sur WhatsApp :</p>
               <a
                 href={`https://wa.me/${CONTACT_INFO.whatsapp}?text=Bonjour,%20je%20souhaite%20commander%20une%20création`}
+                onClick={() => track('whatsapp_general', { label: 'pied de page' })}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center gap-2 bg-[#25D366] hover:bg-emerald-600 text-white w-full py-3 rounded-xl font-medium transition text-sm shadow-md"
@@ -552,6 +564,7 @@ export default function Home() {
         {/* Bouton WhatsApp flottant (pratique sur mobile) */}
         <a
           href={`https://wa.me/${CONTACT_INFO.whatsapp}?text=Bonjour%20Sandja%20Handmade,%20je%20souhaite%20en%20savoir%20plus`}
+          onClick={() => track('whatsapp_general', { label: 'bouton flottant' })}
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Discuter sur WhatsApp"

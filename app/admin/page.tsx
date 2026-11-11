@@ -63,6 +63,208 @@ async function compressImage(file: File, maxSize = 1400, quality = 0.82): Promis
 
 const formatSize = (b: number) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} Mo` : `${Math.round(b / 1024)} Ko`);
 
+// ---------- STATISTIQUES ----------
+interface Stats {
+  visits: number;
+  visitors: number;
+  fiche_views: number;
+  whatsapp_product: number;
+  whatsapp_general: number;
+  social: number;
+  top_products: { product_id: string; label: string; clicks: number; views: number }[];
+  daily: { day: string; visits: number; contacts: number }[];
+  devices: { label: string; c: number }[];
+  sources: { label: string; c: number }[];
+  categories: { label: string; c: number }[];
+}
+
+const PERIODS = [
+  { key: '1', label: 'Aujourd’hui' },
+  { key: '7', label: '7 jours' },
+  { key: '30', label: '30 jours' },
+  { key: 'all', label: 'Tout' },
+] as const;
+
+const CAT_NAMES: Record<string, string> = { all: 'Tous', table: 'Arts de la table', deco: 'Décoration', urgence: 'Packs d’urgence' };
+
+function BarList({ title, rows, names }: { title: string; rows: { label: string; c: number }[]; names?: Record<string, string> }) {
+  const max = Math.max(1, ...rows.map((r) => r.c));
+  return (
+    <div className="bg-white rounded-2xl border border-stone-200 p-5">
+      <h3 className="text-sm font-semibold text-stone-800 mb-4">{title}</h3>
+      {rows.length === 0 ? (
+        <p className="text-xs text-stone-400">Pas encore de données.</p>
+      ) : (
+        <ul className="space-y-3">
+          {rows.map((r) => (
+            <li key={r.label}>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-stone-600 capitalize">{names?.[r.label] || r.label}</span>
+                <span className="font-semibold text-stone-800">{r.c}</span>
+              </div>
+              <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+                <div className="h-full bg-[#C85A32] rounded-full" style={{ width: `${(r.c / max) * 100}%` }} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function StatsPanel() {
+  const [period, setPeriod] = useState<'1' | '7' | '30' | 'all'>('7');
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      const since = new Date('2000-01-01');
+      if (period !== 'all') {
+        since.setTime(Date.now());
+        since.setHours(0, 0, 0, 0);
+        since.setDate(since.getDate() - (Number(period) - 1));
+      }
+      const { data, error } = await supabase.rpc('get_stats', { since: since.toISOString() });
+      if (cancelled) return;
+      if (error) setError(error.message);
+      else setStats(data as Stats);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [period]);
+
+  // Série par jour (les jours sans activité apparaissent à zéro)
+  let days: { day: string; visits: number; contacts: number }[] = stats?.daily || [];
+  if (stats && period !== 'all') {
+    const map = new Map(stats.daily.map((d) => [d.day, d]));
+    days = Array.from({ length: Number(period) }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (Number(period) - 1 - i));
+      const key = d.toLocaleDateString('en-CA');
+      return map.get(key) || { day: key, visits: 0, contacts: 0 };
+    });
+  }
+  const maxDay = Math.max(1, ...days.map((d) => Math.max(d.visits, d.contacts)));
+  const step = days.length > 14 ? Math.ceil(days.length / 7) : 1;
+
+  const contacts = (stats?.whatsapp_product || 0) + (stats?.whatsapp_general || 0);
+  const rate = stats && stats.visitors > 0 ? Math.round((contacts / stats.visitors) * 100) : 0;
+
+  const kpis = stats
+    ? [
+        { n: stats.visits, l: 'Visites', h: 'Sessions sur le site' },
+        { n: stats.visitors, l: 'Visiteurs uniques', h: 'Personnes différentes' },
+        { n: stats.whatsapp_product, l: 'Clics « Je suis intéressé(e) »', h: 'Sur un article précis' },
+        { n: contacts, l: 'Contacts WhatsApp', h: `${rate} % des visiteurs` },
+        { n: stats.fiche_views, l: 'Fiches articles ouvertes', h: 'Via les liens WhatsApp' },
+        { n: stats.social, l: 'Clics réseaux sociaux', h: 'Facebook, TikTok, Messenger' },
+      ]
+    : [];
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <h2 className="font-serif text-2xl font-bold text-[#1C1917]">Statistiques du site</h2>
+        <div className="flex gap-2 overflow-x-auto">
+          {PERIODS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setPeriod(p.key)}
+              className={`shrink-0 px-4 py-2 rounded-full text-xs font-semibold border transition ${
+                period === p.key ? 'bg-[#1C1917] text-white border-[#1C1917]' : 'bg-white text-stone-600 border-stone-300 hover:border-stone-400'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {error ? (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl p-6 text-sm">
+          <p className="font-semibold mb-1">Les statistiques ne sont pas encore activées.</p>
+          <p className="text-xs">
+            Exécutez le fichier <code>analytics.sql</code> dans Supabase (SQL Editor), puis rechargez cette page. Détail : {error}
+          </p>
+        </div>
+      ) : loading || !stats ? (
+        <p className="p-10 text-center text-sm text-stone-500">Chargement des statistiques…</p>
+      ) : (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            {kpis.map((k) => (
+              <div key={k.l} className="bg-white rounded-2xl border border-stone-200 p-4 sm:p-5">
+                <p className="font-serif text-3xl font-bold text-[#C85A32]">{k.n}</p>
+                <p className="text-sm font-semibold text-stone-800 mt-1">{k.l}</p>
+                <p className="text-xs text-stone-500 mt-0.5">{k.h}</p>
+              </div>
+            ))}
+          </div>
+
+          {period !== '1' && (
+            <div className="bg-white rounded-2xl border border-stone-200 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-stone-800">Activité par jour</h3>
+                <div className="flex gap-4 text-xs text-stone-500">
+                  <span className="flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-sm bg-stone-300 inline-block" />Visites</span>
+                  <span className="flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-sm bg-[#C85A32] inline-block" />Contacts WhatsApp</span>
+                </div>
+              </div>
+              <div className="flex items-end gap-1 sm:gap-2 h-40">
+                {days.map((d, i) => (
+                  <div key={d.day} className="flex-1 min-w-0 h-full flex flex-col justify-end items-center" title={`${d.day} : ${d.visits} visite(s), ${d.contacts} contact(s)`}>
+                    <div className="w-full flex items-end justify-center gap-0.5 flex-1">
+                      <div className="w-1/2 bg-stone-300 rounded-t" style={{ height: `${(d.visits / maxDay) * 100}%`, minHeight: d.visits ? 3 : 0 }} />
+                      <div className="w-1/2 bg-[#C85A32] rounded-t" style={{ height: `${(d.contacts / maxDay) * 100}%`, minHeight: d.contacts ? 3 : 0 }} />
+                    </div>
+                    <span className="text-[10px] text-stone-400 mt-1.5 h-3">{i % step === 0 ? d.day.slice(8) + '/' + d.day.slice(5, 7) : ''}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
+            <h3 className="text-sm font-semibold text-stone-800 p-5 pb-3">Articles les plus demandés</h3>
+            {stats.top_products.length === 0 ? (
+              <p className="px-5 pb-5 text-xs text-stone-400">Pas encore de données.</p>
+            ) : (
+              <div className="divide-y divide-stone-100">
+                <div className="grid grid-cols-[1fr_auto_auto] gap-4 px-5 py-2 text-[11px] font-semibold text-stone-500 uppercase tracking-wider bg-stone-50">
+                  <span>Article</span>
+                  <span className="w-20 text-right">Fiche vue</span>
+                  <span className="w-20 text-right">WhatsApp</span>
+                </div>
+                {stats.top_products.map((t) => (
+                  <div key={t.product_id} className="grid grid-cols-[1fr_auto_auto] gap-4 px-5 py-3 text-sm items-center">
+                    <span className="truncate font-medium text-stone-800">{t.label || t.product_id}</span>
+                    <span className="w-20 text-right text-stone-600">{t.views}</span>
+                    <span className="w-20 text-right font-semibold text-[#C85A32]">{t.clicks}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <BarList title="Appareils" rows={stats.devices} />
+            <BarList title="D’où viennent les visiteurs" rows={stats.sources} />
+            <BarList title="Catégories consultées" rows={stats.categories} names={CAT_NAMES} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState('');
@@ -71,6 +273,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [tab, setTab] = useState<'articles' | 'stats'>('articles');
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   // Formulaire
@@ -106,6 +309,9 @@ export default function AdminPage() {
     e.preventDefault();
     if (password === 'sandja2026') {
       setLoginError(false);
+      try {
+        localStorage.setItem('sandja_notrack', '1'); // mes propres visites ne sont pas comptées
+      } catch {}
       setIsAuthenticated(true);
       fetchAdminProducts();
     } else {
@@ -276,6 +482,31 @@ export default function AdminPage() {
       </header>
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+        {/* Onglets */}
+        <div className="flex gap-2 mb-8 border-b border-stone-200">
+          {([
+            ['articles', 'Articles'],
+            ['stats', 'Statistiques'],
+          ] as const).map(([k, l]) => (
+            <button
+              key={k}
+              onClick={() => setTab(k)}
+              className={`px-5 py-3 text-sm font-semibold -mb-px border-b-2 transition ${
+                tab === k ? 'border-[#C85A32] text-[#C85A32]' : 'border-transparent text-stone-500 hover:text-stone-800'
+              }`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'stats' ? (
+          <>
+            <StatsPanel />
+            <p className="text-xs text-stone-400 mt-8">Les visites faites depuis cet espace admin, sur cet appareil, ne sont pas comptées.</p>
+          </>
+        ) : (
+        <>
         {/* Chiffres clés */}
         <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
           {[
@@ -462,6 +693,8 @@ export default function AdminPage() {
             ))
           )}
         </div>
+        </>
+        )}
       </div>
     </div>
   );

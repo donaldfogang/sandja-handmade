@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
+import { TrackedLink, ViewTracker } from '../../TrackedLink';
 
 // Toujours des données fraîches (prix, disponibilité)
 export const dynamic = 'force-dynamic';
@@ -99,6 +100,8 @@ export default async function ProductPage({ params }: Props) {
   const available = p.is_available !== false;
 
   return shell(
+    <>
+    <ViewTracker productId={p.id} label={p.title} />
     <article className="bg-white rounded-3xl border border-stone-200 shadow-md overflow-hidden grid md:grid-cols-2">
       <div className="relative bg-stone-100">
         <img
@@ -131,14 +134,14 @@ export default async function ProductPage({ params }: Props) {
         )}
 
         <div className="mt-8 md:mt-auto pt-2 flex flex-col gap-3">
-          <a
+          <TrackedLink
             href={whatsappHref}
-            target="_blank"
-            rel="noopener noreferrer"
+            productId={p.id}
+            label={p.title}
             className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-emerald-600 text-white py-3.5 px-6 rounded-xl text-sm font-semibold transition shadow-sm"
           >
             💬 Continuer sur WhatsApp
-          </a>
+          </TrackedLink>
           <Link
             href="/#catalogue"
             className="flex items-center justify-center gap-2 border border-stone-300 hover:border-stone-400 text-stone-700 py-3.5 px-6 rounded-xl text-sm font-semibold transition"
@@ -148,5 +151,6 @@ export default async function ProductPage({ params }: Props) {
         </div>
       </div>
     </article>
+    </>
   );
 }
