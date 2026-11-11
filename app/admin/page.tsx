@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import ImageCarousel from '../ImageCarousel';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -32,10 +33,13 @@ interface Product {
   category: 'table' | 'deco';
   price: number;
   image_url: string;
+  images?: string[] | null;
   description: string;
   is_urgent?: boolean;
   is_available?: boolean;
 }
+
+const MAX_IMAGES = 8;
 
 const CAT_LABEL: Record<string, string> = { table: 'Arts de la table', deco: 'Décoration' };
 
@@ -282,21 +286,17 @@ export default function AdminPage() {
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
   const [isUrgent, setIsUrgent] = useState(false);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [images, setImages] = useState<{ id: string; file: File; url: string }[]>([]);
+  const [progress, setProgress] = useState('');
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
 
-  // Aperçu de l'image choisie
+  // Libère les aperçus en quittant la page
   useEffect(() => {
-    if (!imageFile) {
-      setPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(imageFile);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [imageFile]);
+    return () => imagesRef.current.forEach((i) => URL.revokeObjectURL(i.url));
+  }, []);
 
   // Message de confirmation / d'erreur
   useEffect(() => {
@@ -327,12 +327,37 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  const pickFile = (file: File | null) => {
-    if (file && !file.type.startsWith('image/')) {
-      setToast({ type: 'err', text: 'Ce fichier n’est pas une image.' });
-      return;
-    }
-    setImageFile(file);
+  const addFiles = (list: FileList | File[] | null) => {
+    if (!list) return;
+    const all = Array.from(list);
+    const incoming = all.filter((f) => f.type.startsWith('image/'));
+    const room = MAX_IMAGES - images.length;
+    const accepted = incoming.slice(0, Math.max(0, room));
+    if (incoming.length < all.length) setToast({ type: 'err', text: 'Les fichiers qui ne sont pas des images ont été ignorés.' });
+    else if (incoming.length > room) setToast({ type: 'err', text: `Maximum ${MAX_IMAGES} photos par article.` });
+    setImages([
+      ...images,
+      ...accepted.map((file) => ({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file,
+        url: URL.createObjectURL(file),
+      })),
+    ]);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const removeImage = (id: string) => {
+    const target = images.find((i) => i.id === id);
+    if (target) URL.revokeObjectURL(target.url);
+    setImages(images.filter((i) => i.id !== id));
+  };
+
+  const moveImage = (index: number, dir: -1 | 1) => {
+    const j = index + dir;
+    if (j < 0 || j >= images.length) return;
+    const next = [...images];
+    [next[index], next[j]] = [next[j], next[index]];
+    setImages(next);
   };
 
   const resetForm = () => {
@@ -340,28 +365,38 @@ export default function AdminPage() {
     setPrice('');
     setDescription('');
     setIsUrgent(false);
-    setImageFile(null);
+    images.forEach((i) => URL.revokeObjectURL(i.url));
+    setImages([]);
     if (fileRef.current) fileRef.current.value = '';
   };
 
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !price || !imageFile) {
-      setToast({ type: 'err', text: 'Renseignez le titre, le prix et choisissez une image.' });
+    if (!title.trim() || !price || images.length === 0) {
+      setToast({ type: 'err', text: 'Renseignez le titre, le prix et ajoutez au moins une photo.' });
       return;
     }
 
+    const uploaded: string[] = [];
     try {
       setSaving(true);
-      const optimized = await compressImage(imageFile);
-      const safeName = optimized.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const fileName = `${Date.now()}-${safeName}`;
+      const urls: string[] = [];
 
-      const { error: uploadError } = await supabase.storage.from('products-images').upload(fileName, optimized);
-      if (uploadError) throw uploadError;
+      for (let i = 0; i < images.length; i++) {
+        setProgress(`Envoi de la photo ${i + 1}/${images.length}…`);
+        const optimized = await compressImage(images[i].file);
+        const safeName = optimized.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const fileName = `${Date.now()}-${i}-${safeName}`;
 
-      const { data: publicUrlData } = supabase.storage.from('products-images').getPublicUrl(fileName);
+        const { error: uploadError } = await supabase.storage.from('products-images').upload(fileName, optimized);
+        if (uploadError) throw uploadError;
+        uploaded.push(fileName);
 
+        const { data: publicUrlData } = supabase.storage.from('products-images').getPublicUrl(fileName);
+        urls.push(publicUrlData.publicUrl);
+      }
+
+      setProgress('Publication…');
       const { error: insertError } = await supabase.from('products').insert([
         {
           name: title.trim(), // requis par la contrainte de la base de données
@@ -369,20 +404,26 @@ export default function AdminPage() {
           category,
           price: Number(price),
           description: description.trim(),
-          image_url: publicUrlData.publicUrl,
+          image_url: urls[0], // photo principale (liste, partage WhatsApp)
+          images: urls, // toutes les photos, dans l'ordre choisi
           is_urgent: isUrgent,
           is_available: true,
         },
       ]);
       if (insertError) throw insertError;
 
-      setToast({ type: 'ok', text: `« ${title.trim()} » a été publié sur le site.` });
+      setToast({ type: 'ok', text: `« ${title.trim()} » a été publié avec ${urls.length} photo${urls.length > 1 ? 's' : ''}.` });
       resetForm();
       fetchAdminProducts();
     } catch (err: any) {
-      setToast({ type: 'err', text: 'Erreur lors de l’ajout : ' + (err?.message || 'inconnue') });
+      // on retire les photos déjà envoyées pour ne pas laisser de fichiers orphelins
+      if (uploaded.length) await supabase.storage.from('products-images').remove(uploaded);
+      const msg: string = err?.message || 'inconnue';
+      const hint = /images/i.test(msg) && /column|schema/i.test(msg) ? ' — exécutez d’abord multi-images.sql dans Supabase.' : '';
+      setToast({ type: 'err', text: 'Erreur lors de l’ajout : ' + msg + hint });
     } finally {
       setSaving(false);
+      setProgress('');
     }
   };
 
@@ -529,35 +570,17 @@ export default function AdminPage() {
               <p className="text-sm text-stone-500 mt-1">L’aperçu à droite montre l’article tel que vos clients le verront.</p>
             </div>
 
-            {/* Choix de l'image */}
+            {/* Photos de l'article */}
             <div>
-              <label className={labelCls}>Photo de l’article *</label>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickFile(e.target.files?.[0] || null)} />
-              {previewUrl && imageFile ? (
-                <div className="flex items-center gap-4 p-3 border border-emerald-200 bg-emerald-50/60 rounded-2xl">
-                  <img src={previewUrl} alt="Image sélectionnée" className="w-24 h-24 sm:w-28 sm:h-28 object-cover rounded-xl border border-white shadow-sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-emerald-900">✓ Image sélectionnée</p>
-                    <p className="text-xs text-stone-600 truncate mt-0.5">{imageFile.name}</p>
-                    <p className="text-xs text-stone-500 mt-0.5">{formatSize(imageFile.size)} · optimisée automatiquement à l’envoi</p>
-                    <div className="flex gap-3 mt-2">
-                      <button type="button" onClick={() => fileRef.current?.click()} className="text-xs font-semibold text-[#C85A32] hover:underline">
-                        Changer
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setImageFile(null);
-                          if (fileRef.current) fileRef.current.value = '';
-                        }}
-                        className="text-xs font-semibold text-rose-600 hover:underline"
-                      >
-                        Retirer
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
+              <div className="flex items-baseline justify-between gap-3">
+                <label className={labelCls}>
+                  Photos de l’article * <span className="font-normal text-stone-400">(vue d’ensemble, puis détails)</span>
+                </label>
+                {images.length > 0 && <span className="text-xs text-stone-500 shrink-0">{images.length}/{MAX_IMAGES}</span>}
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
+
+              {images.length === 0 ? (
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
@@ -569,17 +592,59 @@ export default function AdminPage() {
                   onDrop={(e) => {
                     e.preventDefault();
                     setDragging(false);
-                    pickFile(e.dataTransfer.files?.[0] || null);
+                    addFiles(e.dataTransfer.files);
                   }}
                   className={`w-full border-2 border-dashed rounded-2xl py-10 px-4 text-center transition ${
                     dragging ? 'border-[#C85A32] bg-[#C85A32]/5' : 'border-stone-300 hover:border-[#C85A32] hover:bg-stone-50'
                   }`}
                 >
                   <span className="block text-3xl mb-2">📷</span>
-                  <span className="block text-sm font-semibold text-stone-700">Cliquez pour choisir une photo</span>
-                  <span className="block text-xs text-stone-500 mt-1">ou glissez-la ici</span>
+                  <span className="block text-sm font-semibold text-stone-700">Cliquez pour choisir une ou plusieurs photos</span>
+                  <span className="block text-xs text-stone-500 mt-1">ou glissez-les ici (jusqu’à {MAX_IMAGES})</span>
                 </button>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                  {images.map((im, i) => (
+                    <div
+                      key={im.id}
+                      className={`relative aspect-square rounded-xl overflow-hidden border ${
+                        i === 0 ? 'border-[#C85A32] ring-2 ring-[#C85A32]/30' : 'border-stone-200'
+                      }`}
+                    >
+                      <img src={im.url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
+                      {i === 0 && (
+                        <span className="absolute top-1.5 left-1.5 bg-[#C85A32] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Principale</span>
+                      )}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-1.5 flex items-center justify-between">
+                        <div className="flex gap-1">
+                          <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0} aria-label="Déplacer vers la gauche" className="w-6 h-6 rounded-full bg-white/90 text-stone-800 text-xs disabled:opacity-30">
+                            ◀
+                          </button>
+                          <button type="button" onClick={() => moveImage(i, 1)} disabled={i === images.length - 1} aria-label="Déplacer vers la droite" className="w-6 h-6 rounded-full bg-white/90 text-stone-800 text-xs disabled:opacity-30">
+                            ▶
+                          </button>
+                        </div>
+                        <button type="button" onClick={() => removeImage(im.id)} aria-label="Retirer cette photo" className="w-6 h-6 rounded-full bg-rose-600 text-white text-xs">
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {images.length < MAX_IMAGES && (
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      className="aspect-square rounded-xl border-2 border-dashed border-stone-300 hover:border-[#C85A32] hover:bg-stone-50 flex flex-col items-center justify-center text-stone-500 hover:text-[#C85A32] transition"
+                    >
+                      <span className="text-2xl leading-none">+</span>
+                      <span className="text-[11px] font-semibold mt-1">Ajouter</span>
+                    </button>
+                  )}
+                </div>
               )}
+              <p className="text-xs text-stone-500 mt-2">
+                La première photo est celle affichée dans la liste et dans le partage WhatsApp. Utilisez ◀ ▶ pour changer l’ordre.
+              </p>
             </div>
 
             <div className="grid sm:grid-cols-2 gap-4">
@@ -613,7 +678,7 @@ export default function AdminPage() {
             </label>
 
             <button type="submit" disabled={saving} className="w-full bg-[#C85A32] text-white py-3.5 rounded-xl font-semibold text-sm hover:bg-[#b04b25] disabled:opacity-60 disabled:cursor-not-allowed transition">
-              {saving ? 'Publication en cours…' : 'Publier l’article'}
+              {saving ? progress || 'Publication en cours…' : 'Publier l’article'}
             </button>
           </form>
 
@@ -622,16 +687,11 @@ export default function AdminPage() {
             <div className="lg:sticky lg:top-24">
               <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Aperçu sur le site</p>
               <div className="bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-sm">
-                <div className="relative aspect-[4/3] bg-stone-100 flex items-center justify-center">
-                  {previewUrl ? (
-                    <img src={previewUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-xs text-stone-400">La photo apparaîtra ici</span>
-                  )}
+                <ImageCarousel images={images.map((i) => i.url)} alt="Aperçu" empty={<span className="text-xs text-stone-400">Les photos apparaîtront ici</span>}>
                   <span className={`absolute top-3 left-3 text-[11px] font-bold px-3 py-1 rounded-full shadow ${isUrgent ? 'bg-amber-600 text-white' : 'bg-stone-900/80 text-white'}`}>
                     {isUrgent ? '⚡ Disponible immédiatement' : '⏳ Sur commande (12 jours)'}
                   </span>
-                </div>
+                </ImageCarousel>
                 <div className="p-5">
                   <div className="flex items-baseline justify-between gap-3 mb-2">
                     <h3 className="font-semibold text-lg text-[#1C1917] leading-snug">{title || 'Titre de l’article'}</h3>
@@ -664,7 +724,10 @@ export default function AdminPage() {
                   <img src={p.image_url} alt="" className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-xl border border-stone-200 shrink-0" />
                   <div className="min-w-0">
                     <p className="font-semibold text-stone-900 truncate">{p.title}</p>
-                    <p className="text-xs text-stone-500 mt-0.5">{CAT_LABEL[p.category] || p.category}</p>
+                    <p className="text-xs text-stone-500 mt-0.5">
+                      {CAT_LABEL[p.category] || p.category}
+                      {(p.images?.length || 0) > 1 && ` · ${p.images!.length} photos`}
+                    </p>
                     <p className="font-serif font-bold text-[#C85A32] mt-1">{Number(p.price || 0).toLocaleString('fr-FR')} FCFA</p>
                   </div>
                 </div>

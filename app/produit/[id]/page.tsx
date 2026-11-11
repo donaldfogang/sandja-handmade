@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 import { TrackedLink, ViewTracker } from '../../TrackedLink';
+import ImageCarousel from '../../ImageCarousel';
 
 // Toujours des données fraîches (prix, disponibilité)
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,7 @@ interface Product {
   category: 'table' | 'deco';
   price: number;
   image_url: string;
+  images?: string[] | null;
   description: string;
   is_urgent?: boolean;
   is_available?: boolean;
@@ -98,17 +100,13 @@ export default async function ProductPage({ params }: Props) {
     : `Bonjour Sandja Handmade, je souhaite commander : "${p.title}" (${price} FCFA), délai indicatif de 12 jours. Est-ce possible ?\n\n${link}`;
   const whatsappHref = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(message)}`;
   const available = p.is_available !== false;
+  const gallery = p.images && p.images.length > 0 ? p.images : [p.image_url];
 
   return shell(
     <>
     <ViewTracker productId={p.id} label={p.title} />
     <article className="bg-white rounded-3xl border border-stone-200 shadow-md overflow-hidden grid md:grid-cols-2">
-      <div className="relative bg-stone-100">
-        <img
-          src={p.image_url}
-          alt={p.title}
-          className="w-full h-full max-h-[70vh] md:max-h-none object-cover aspect-[4/3] md:aspect-auto"
-        />
+      <ImageCarousel images={gallery} alt={p.title} className="aspect-[4/3] md:aspect-auto md:h-full md:min-h-[480px]">
         <span
           className={`absolute top-4 left-4 text-[11px] font-bold px-3 py-1 rounded-full shadow ${
             p.is_urgent ? 'bg-amber-600 text-white' : 'bg-stone-900/80 text-white backdrop-blur-sm'
@@ -116,7 +114,7 @@ export default async function ProductPage({ params }: Props) {
         >
           {p.is_urgent ? '⚡ Disponible immédiatement' : '⏳ Sur commande (12 jours)'}
         </span>
-      </div>
+      </ImageCarousel>
 
       <div className="p-6 sm:p-10 flex flex-col">
         <p className="text-xs font-semibold tracking-wider text-[#C85A32] uppercase mb-3">

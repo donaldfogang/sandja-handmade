@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import SplashScreen from './SplashScreen';
 import { track } from './lib/track';
+import ImageCarousel from './ImageCarousel';
 
 // --- CONFIGURATION SUPABASE ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -17,6 +18,7 @@ interface Product {
   category: 'table' | 'deco';
   price: number;
   image_url: string;
+  images?: string[] | null;
   description: string;
   is_urgent?: boolean;
   is_available?: boolean;
@@ -50,6 +52,9 @@ const NAV = [
 ];
 
 const ITEMS_PER_PAGE = 9;
+
+// Toutes les photos d'un article (la première = photo principale)
+const getImages = (p: Product) => (p.images && p.images.length > 0 ? p.images : [p.image_url]);
 
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -108,13 +113,6 @@ export default function Home() {
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     document.getElementById('catalogue')?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-    const target = e.currentTarget;
-    target.onerror = null;
-    target.src =
-      'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="400" height="300" fill="%23f3f4f6"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-family="sans-serif" font-size="16">Image Sandja Non Disponible</text></svg>';
   };
 
   const getWhatsAppLink = (product: Product) => {
@@ -300,19 +298,11 @@ export default function Home() {
                   className="bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-sm hover:shadow-md transition flex flex-col justify-between group scroll-mt-28"
                 >
                   <div>
-                    <div className="relative overflow-hidden aspect-[4/3] bg-stone-100">
-                      <img
-                        src={item.image_url}
-                        alt={item.title}
-                        loading="lazy"
-                        decoding="async"
-                        onError={handleImageError}
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                      />
+                    <ImageCarousel images={getImages(item)} alt={item.title}>
                       <span className="absolute top-3 left-3 bg-stone-900/80 text-white text-[11px] font-medium px-3 py-1 rounded-full backdrop-blur-sm">
                         ⏳ Sur commande (12 jours)
                       </span>
-                    </div>
+                    </ImageCarousel>
                     <div className="p-5">
                       <div className="flex items-baseline justify-between gap-3 mb-2">
                         <h3 className="font-semibold text-lg text-[#1C1917] leading-snug">{item.title}</h3>
@@ -411,19 +401,11 @@ export default function Home() {
                     className="bg-white rounded-2xl overflow-hidden border border-amber-300 shadow-md flex flex-col justify-between group scroll-mt-28"
                   >
                     <div>
-                      <div className="relative overflow-hidden aspect-[4/3] bg-stone-100">
-                        <img
-                          src={item.image_url}
-                          alt={item.title}
-                          loading="lazy"
-                          decoding="async"
-                          onError={handleImageError}
-                          className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                        />
-                        <span className="absolute top-3 left-3 bg-amber-600 text-white text-[11px] font-bold px-3 py-1 rounded-full shadow">
+                      <ImageCarousel images={getImages(item)} alt={item.title}>
+                      <span className="absolute top-3 left-3 bg-amber-600 text-white text-[11px] font-bold px-3 py-1 rounded-full shadow">
                           ⚡ En stock
                         </span>
-                      </div>
+                    </ImageCarousel>
                       <div className="p-5">
                         <div className="flex items-baseline justify-between gap-3 mb-2">
                           <h3 className="font-semibold text-lg text-stone-900 leading-snug">{item.title}</h3>
