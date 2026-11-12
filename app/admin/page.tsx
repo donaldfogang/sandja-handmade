@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import ImageCarousel from '../ImageCarousel';
 import { WhatsAppIcon } from '../Icons';
+import RichDescription from '../RichDescription';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -66,45 +67,21 @@ async function compressImage(file: File, maxSize = 1400, quality = 0.82): Promis
   }
 }
 
-// Empreinte visuelle d'une image (64 bits). Deux fichiers identiques, ou la même photo
-// recompressée / redimensionnée, donnent la même empreinte à quelques bits près.
-async function imageHash(source: Blob): Promise<string | null> {
+// Nom « de base » d'une photo : sans extension, en minuscules, avec la même
+// transformation des caractères spéciaux qu'à l'envoi. (autre.jpeg = Autre.JPG = autre.png)
+const baseName = (name: string) =>
+  name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
+
+// Nom d'origine d'une photo déjà en ligne, retrouvé dans son adresse
+// (le préfixe de date ajouté à l'envoi est retiré).
+const nameFromUrl = (url: string) => {
   try {
-    const bmp = await createImageBitmap(source);
-    const mid = document.createElement('canvas');
-    mid.width = 72;
-    mid.height = 64;
-    const mctx = mid.getContext('2d');
-    const small = document.createElement('canvas');
-    small.width = 9;
-    small.height = 8;
-    const sctx = small.getContext('2d', { willReadFrequently: true });
-    if (!mctx || !sctx) return null;
-    mctx.imageSmoothingQuality = 'high';
-    mctx.drawImage(bmp, 0, 0, 72, 64);
-    sctx.imageSmoothingQuality = 'high';
-    sctx.drawImage(mid, 0, 0, 9, 8);
-    const d = sctx.getImageData(0, 0, 9, 8).data;
-    const lum = (i: number) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    let bits = '';
-    for (let y = 0; y < 8; y++) {
-      for (let x = 0; x < 8; x++) {
-        bits += lum((y * 9 + x) * 4) > lum((y * 9 + x + 1) * 4) ? '1' : '0';
-      }
-    }
-    return bits;
+    const file = decodeURIComponent(url.split('?')[0].split('/').pop() || '');
+    return baseName(file.replace(/^\d{10,}-(?:\d{1,2}-)?/, ''));
   } catch {
-    return null;
+    return '';
   }
-}
-
-const hamming = (a: string, b: string) => {
-  let n = 0;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++;
-  return n;
 };
-
-const DUP_MAX = 8; // au plus 8 bits d’écart sur 64 = même photo (photos différentes : 12 et plus)
 
 const formatSize = (b: number) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} Mo` : `${Math.round(b / 1024)} Ko`);
 
@@ -327,9 +304,7 @@ export default function AdminPage() {
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
   const [isUrgent, setIsUrgent] = useState(false);
-  const [images, setImages] = useState<{ id: string; file?: File; url: string; existing?: boolean; hash?: string | null }[]>([]);
-  const [checking, setChecking] = useState(false);
-  const hashCache = useRef(new Map<string, string | null>());
+  const [images, setImages] = useState<{ id: string; file?: File; url: string; existing?: boolean }[]>([]);
   const savingRef = useRef(false);
   const [editingId, setEditingId] = useState<number | string | null>(null);
   const [progress, setProgress] = useState('');
@@ -372,36 +347,9 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  // Empreintes de toutes les photos déjà publiées (calculées une fois, puis gardées en mémoire)
-  const getCatalogHashes = async () => {
-    const jobs: { url: string; title: string; productId: Product['id'] }[] = [];
-    for (const p of products) {
-      const urls = p.images && p.images.length > 0 ? p.images : [p.image_url];
-      urls.filter(Boolean).forEach((url) => jobs.push({ url, title: p.title, productId: p.id }));
-    }
-    for (let i = 0; i < jobs.length; i += 6) {
-      await Promise.all(
-        jobs.slice(i, i + 6).map(async (j) => {
-          if (hashCache.current.has(j.url)) return;
-          try {
-            const res = await fetch(j.url);
-            hashCache.current.set(j.url, res.ok ? await imageHash(await res.blob()) : null);
-          } catch {
-            hashCache.current.set(j.url, null);
-          }
-        })
-      );
-    }
-    const entries: { hash: string; title: string; productId: Product['id'] }[] = [];
-    jobs.forEach((j) => {
-      const h = hashCache.current.get(j.url);
-      if (h) entries.push({ hash: h, title: j.title, productId: j.productId });
-    });
-    return entries;
-  };
-
-  const addFiles = async (list: FileList | File[] | null) => {
-    if (!list || checking) return;
+  // Une photo est refusée seulement si une photo du même NOM est déjà utilisée
+  const addFiles = (list: FileList | File[] | null) => {
+    if (!list) return;
     const all = Array.from(list);
     const incoming = all.filter((f) => f.type.startsWith('image/'));
     const room = MAX_IMAGES - images.length;
@@ -411,41 +359,31 @@ export default function AdminPage() {
     if (incoming.length < all.length) notes.push('Les fichiers qui ne sont pas des images ont été ignorés.');
     if (incoming.length > room) notes.push(`Maximum ${MAX_IMAGES} photos par article.`);
 
-    setChecking(true);
-    try {
-      const catalog = await getCatalogHashes();
-      const selected = images
-        .map((i) => (i.existing ? hashCache.current.get(i.url) : i.hash))
-        .filter((h): h is string => !!h);
-      const accepted: { id: string; file: File; url: string; hash: string | null }[] = [];
+    // noms déjà présents dans la sélection en cours
+    const used = new Set(images.map((i) => (i.existing ? nameFromUrl(i.url) : baseName(i.file?.name || ''))));
+    const accepted: { id: string; file: File; url: string }[] = [];
 
-      for (const file of incoming.slice(0, Math.max(0, room))) {
-        const h = await imageHash(file);
-        if (h) {
-          // déjà utilisée dans un AUTRE article ?
-          const other = catalog.find((c) => c.productId !== editingId && hamming(c.hash, h) <= DUP_MAX);
-          if (other) {
-            notes.push(`Photo refusée : « ${file.name} » est déjà utilisée dans l’article « ${other.title} ».`);
-            continue;
-          }
-          // déjà dans la sélection en cours ?
-          if (selected.some((x) => hamming(x, h) <= DUP_MAX)) {
-            notes.push(`Photo refusée : « ${file.name} » est déjà dans cet article.`);
-            continue;
-          }
-          selected.push(h);
-        }
-        accepted.push({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          file,
-          url: URL.createObjectURL(file),
-          hash: h,
-        });
+    for (const file of incoming.slice(0, Math.max(0, room))) {
+      const name = baseName(file.name);
+      const other = products.find(
+        (p) => p.id !== editingId && (p.images && p.images.length > 0 ? p.images : [p.image_url]).some((u) => nameFromUrl(u) === name)
+      );
+      if (other) {
+        notes.push(`« ${file.name} » porte le même nom qu’une photo de l’article « ${other.title} ». Si c’est une autre photo, renommez le fichier puis ajoutez-le à nouveau.`);
+        continue;
       }
-      if (accepted.length) setImages((prev) => [...prev, ...accepted]);
-    } finally {
-      setChecking(false);
+      if (used.has(name)) {
+        notes.push(`« ${file.name} » porte le même nom qu’une photo déjà présente dans cet article. Si c’est une autre photo, renommez le fichier.`);
+        continue;
+      }
+      used.add(name);
+      accepted.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file,
+        url: URL.createObjectURL(file),
+      });
     }
+    if (accepted.length) setImages((prev) => [...prev, ...accepted]);
     if (notes.length) setToast({ type: 'err', text: notes.join(' ') });
   };
 
@@ -744,7 +682,7 @@ export default function AdminPage() {
                 <label className={labelCls}>
                   Photos de l’article * <span className="font-normal text-stone-400">(vue d’ensemble, puis détails)</span>
                 </label>
-                <span className="text-xs text-stone-500 shrink-0">{checking ? 'Vérification des doublons…' : images.length > 0 ? `${images.length}/${MAX_IMAGES}` : ''}</span>
+                <span className="text-xs text-stone-500 shrink-0">{images.length > 0 ? `${images.length}/${MAX_IMAGES}` : ''}</span>
               </div>
               <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
 
@@ -833,7 +771,10 @@ export default function AdminPage() {
               </div>
               <div className="sm:col-span-2">
                 <label className={labelCls}>Description</label>
-                <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder="Matières, dimensions, détails..." />
+                <textarea rows={6} value={description} onChange={(e) => setDescription(e.target.value)} className={inputCls} placeholder={'Ex :\nVase en fibres naturelles tressées.\n\nUtilisation : idéal sur une console.\n- Hauteur : 45 cm\n- Fleurs séchées incluses'} />
+                <p className="text-xs text-stone-500 mt-1.5">
+                  Astuce : allez à la ligne pour séparer les paragraphes, et commencez une ligne par <strong>-</strong> pour faire une liste à puces. L’aperçu à droite montre le résultat.
+                </p>
               </div>
             </div>
 
@@ -862,18 +803,22 @@ export default function AdminPage() {
             <div className="lg:sticky lg:top-24">
               <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-3">Aperçu sur le site</p>
               <div className="bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-sm">
-                <ImageCarousel images={images.map((i) => i.url)} alt="Aperçu" empty={<span className="text-xs text-stone-400">Les photos apparaîtront ici</span>}>
+                <ImageCarousel images={images.map((i) => i.url)} alt="Aperçu" className="aspect-[3/2]" empty={<span className="text-xs text-stone-400">Les photos apparaîtront ici</span>}>
                   <span className={`absolute top-3 left-3 text-[11px] font-bold px-3 py-1 rounded-full shadow ${isUrgent ? 'bg-amber-600 text-white' : 'bg-stone-900/80 text-white'}`}>
                     {isUrgent ? '⚡ Disponible immédiatement' : '⏳ Sur commande (12 jours)'}
                   </span>
                 </ImageCarousel>
-                <div className="p-5">
+                <div className="p-4">
                   <div className="flex items-baseline justify-between gap-3 mb-2">
-                    <h3 className="font-semibold text-lg text-[#1C1917] leading-snug">{title || 'Titre de l’article'}</h3>
-                    <span className="font-serif font-bold text-[#C85A32] whitespace-nowrap">{priceNum.toLocaleString('fr-FR')} FCFA</span>
+                    <h3 className="font-semibold text-base text-[#1C1917] leading-snug">{title || 'Titre de l’article'}</h3>
+                    <span className="font-serif font-bold text-[#C85A32] whitespace-nowrap text-sm">{priceNum.toLocaleString('fr-FR')} FCFA</span>
                   </div>
                   <p className="text-xs text-[#C85A32] font-semibold mb-2">{CAT_LABEL[category]}</p>
-                  <p className="text-stone-500 text-xs leading-relaxed min-h-[2.5rem]">{description || 'La description apparaîtra ici.'}</p>
+                  {description.trim() ? (
+                    <RichDescription text={description} className="text-stone-500 text-xs min-h-[2.5rem]" />
+                  ) : (
+                    <p className="text-stone-400 text-xs leading-relaxed min-h-[2.5rem]">La description apparaîtra ici.</p>
+                  )}
                   <div className="mt-4 bg-stone-900 text-white py-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2"><WhatsAppIcon className="w-4 h-4" /> Je suis intéressé(e)</div>
                 </div>
               </div>

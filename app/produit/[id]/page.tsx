@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 import { TrackedLink, ViewTracker } from '../../TrackedLink';
 import ImageCarousel from '../../ImageCarousel';
+import RichDescription from '../../RichDescription';
 import { WhatsAppIcon } from '../../Icons';
 
 // Toujours des données fraîches (prix, disponibilité)
@@ -125,7 +126,7 @@ export default async function ProductPage({ params }: Props) {
         <h1 className="font-serif text-3xl sm:text-4xl font-bold text-[#1C1917] leading-tight">{p.title}</h1>
         <p className="font-serif text-3xl font-bold text-[#C85A32] mt-4">{price} FCFA</p>
 
-        {p.description && <p className="text-stone-600 text-sm sm:text-base leading-relaxed mt-5">{p.description}</p>}
+        {p.description && <RichDescription text={p.description} clamp={false} className="text-stone-600 text-sm sm:text-base mt-5" />}
 
         {!available && (
           <p className="mt-5 text-sm bg-rose-50 text-rose-800 border border-rose-200 rounded-xl px-4 py-3">

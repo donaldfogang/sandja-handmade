@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import SplashScreen from './SplashScreen';
 import { track } from './lib/track';
 import ImageCarousel from './ImageCarousel';
+import RichDescription from './RichDescription';
 import { WhatsAppIcon, FacebookIcon, TikTokIcon, MessengerIcon, PhoneIcon, MailIcon } from './Icons';
 
 // --- CONFIGURATION SUPABASE ---
@@ -52,7 +53,20 @@ const NAV = [
   { href: '#contact', label: 'Contact' },
 ];
 
-const ITEMS_PER_PAGE = 9;
+const ITEMS_PER_PAGE = 6;
+
+// Numéros de pages à afficher : 1 … 4 5 6 … 12
+const pageList = (cur: number, total: number): (number | '…')[] => {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const out: (number | '…')[] = [1];
+  const start = Math.max(2, cur - 1);
+  const end = Math.min(total - 1, cur + 1);
+  if (start > 2) out.push('…');
+  for (let i = start; i <= end; i++) out.push(i);
+  if (end < total - 1) out.push('…');
+  out.push(total);
+  return out;
+};
 
 // Toutes les photos d'un article (la première = photo principale)
 const getImages = (p: Product) => (p.images && p.images.length > 0 ? p.images : [p.image_url]);
@@ -283,11 +297,11 @@ export default function Home() {
           </div>
 
           {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8" aria-hidden="true">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6" aria-hidden="true">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="bg-white rounded-2xl border border-stone-200 overflow-hidden animate-pulse">
-                  <div className="aspect-[4/3] bg-stone-200" />
-                  <div className="p-5 space-y-3">
+                  <div className="aspect-[3/2] bg-stone-200" />
+                  <div className="p-4 space-y-3">
                     <div className="h-4 bg-stone-200 rounded w-2/3" />
                     <div className="h-3 bg-stone-100 rounded w-full" />
                     <div className="h-10 bg-stone-100 rounded-xl" />
@@ -296,36 +310,36 @@ export default function Home() {
               ))}
             </div>
           ) : currentProducts.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
               {currentProducts.map((item) => (
                 <div
                   key={item.id}
                   id={`produit-${item.id}`}
-                  className="bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-sm hover:shadow-md transition flex flex-col justify-between group scroll-mt-28"
+                  className="bg-white rounded-xl overflow-hidden border border-stone-200 shadow-sm hover:shadow-md transition flex flex-col justify-between group scroll-mt-28"
                 >
                   <div>
-                    <ImageCarousel images={getImages(item)} alt={item.title}>
+                    <ImageCarousel images={getImages(item)} alt={item.title} className="aspect-[3/2]">
                       <span className="absolute top-3 left-3 bg-stone-900/80 text-white text-[11px] font-medium px-3 py-1 rounded-full backdrop-blur-sm">
                         ⏳ Sur commande (12 jours)
                       </span>
                     </ImageCarousel>
-                    <div className="p-5">
+                    <div className="p-4">
                       <div className="flex items-baseline justify-between gap-3 mb-2">
-                        <h3 className="font-semibold text-lg text-[#1C1917] leading-snug">{item.title}</h3>
-                        <span className="font-serif font-bold text-[#C85A32] whitespace-nowrap text-base">
+                        <h3 className="font-semibold text-base text-[#1C1917] leading-snug">{item.title}</h3>
+                        <span className="font-serif font-bold text-[#C85A32] whitespace-nowrap text-sm">
                           {Number(item.price || 0).toLocaleString('fr-FR')} FCFA
                         </span>
                       </div>
-                      <p className="text-stone-500 text-xs leading-relaxed mb-4">{item.description}</p>
+                      <RichDescription text={item.description} moreHref={`/produit/${item.id}`} className="text-stone-500 text-xs mb-3" />
                     </div>
                   </div>
-                  <div className="p-5 pt-0">
+                  <div className="p-4 pt-0">
                     <a
                       href={getWhatsAppLink(item)}
                       onClick={() => track('whatsapp_click', { productId: item.id, label: item.title })}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={`w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-[#25D366] text-white py-3 px-4 rounded-xl text-xs font-semibold tracking-wide transition duration-300 shadow-sm ${focusRing}`}
+                      className={`w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-[#25D366] text-white py-2.5 px-4 rounded-xl text-xs font-semibold tracking-wide transition duration-300 shadow-sm ${focusRing}`}
                     >
                       <WhatsAppIcon className="w-4 h-4" /> Je suis intéressé(e)
                     </a>
@@ -357,21 +371,27 @@ export default function Home() {
               >
                 ← Précédent
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => handlePageChange(n)}
-                  aria-current={currentPage === n ? 'page' : undefined}
-                  className={`w-9 h-9 rounded-xl text-xs font-semibold transition ${
-                    currentPage === n
-                      ? 'bg-[#C85A32] text-white shadow-sm'
-                      : 'bg-white text-stone-600 border border-stone-300 hover:bg-stone-50'
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
+              {pageList(currentPage, totalPages).map((n, i) =>
+                n === '…' ? (
+                  <span key={`gap-${i}`} className="w-6 text-center text-xs text-stone-400">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => handlePageChange(n)}
+                    aria-current={currentPage === n ? 'page' : undefined}
+                    className={`w-9 h-9 rounded-xl text-xs font-semibold transition ${
+                      currentPage === n
+                        ? 'bg-[#C85A32] text-white shadow-sm'
+                        : 'bg-white text-stone-600 border border-stone-300 hover:bg-stone-50'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                )
+              )}
               <button
                 type="button"
                 onClick={() => handlePageChange(Math.min(currentPage + 1, totalPages))}
@@ -399,36 +419,36 @@ export default function Home() {
             </div>
 
             {urgentProducts.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
                 {urgentProducts.map((item) => (
                   <div
                     key={`urgence-${item.id}`}
                     id={`produit-${item.id}`}
-                    className="bg-white rounded-2xl overflow-hidden border border-amber-300 shadow-md flex flex-col justify-between group scroll-mt-28"
+                    className="bg-white rounded-xl overflow-hidden border border-amber-300 shadow-md flex flex-col justify-between group scroll-mt-28"
                   >
                     <div>
-                      <ImageCarousel images={getImages(item)} alt={item.title}>
+                      <ImageCarousel images={getImages(item)} alt={item.title} className="aspect-[3/2]">
                       <span className="absolute top-3 left-3 bg-amber-600 text-white text-[11px] font-bold px-3 py-1 rounded-full shadow">
                           ⚡ En stock
                         </span>
                     </ImageCarousel>
-                      <div className="p-5">
+                      <div className="p-4">
                         <div className="flex items-baseline justify-between gap-3 mb-2">
-                          <h3 className="font-semibold text-lg text-stone-900 leading-snug">{item.title}</h3>
-                          <span className="font-serif font-bold text-[#C85A32] whitespace-nowrap text-base">
+                          <h3 className="font-semibold text-base text-stone-900 leading-snug">{item.title}</h3>
+                          <span className="font-serif font-bold text-[#C85A32] whitespace-nowrap text-sm">
                             {Number(item.price || 0).toLocaleString('fr-FR')} FCFA
                           </span>
                         </div>
-                        <p className="text-stone-600 text-xs leading-relaxed mb-4">{item.description}</p>
+                        <RichDescription text={item.description} moreHref={`/produit/${item.id}`} className="text-stone-600 text-xs mb-3" />
                       </div>
                     </div>
-                    <div className="p-5 pt-0">
+                    <div className="p-4 pt-0">
                       <a
                         href={getWhatsAppLink(item)}
                       onClick={() => track('whatsapp_click', { productId: item.id, label: item.title })}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className={`w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white py-3 px-4 rounded-xl text-xs font-semibold tracking-wide transition shadow-sm ${focusRing}`}
+                        className={`w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white py-2.5 px-4 rounded-xl text-xs font-semibold tracking-wide transition shadow-sm ${focusRing}`}
                       >
                         <WhatsAppIcon className="w-4 h-4" /> Réserver en urgence via WhatsApp
                       </a>
