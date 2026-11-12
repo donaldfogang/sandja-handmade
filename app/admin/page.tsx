@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import ImageCarousel from '../ImageCarousel';
+import { WhatsAppIcon } from '../Icons';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -64,6 +65,46 @@ async function compressImage(file: File, maxSize = 1400, quality = 0.82): Promis
     return file;
   }
 }
+
+// Empreinte visuelle d'une image (64 bits). Deux fichiers identiques, ou la même photo
+// recompressée / redimensionnée, donnent la même empreinte à quelques bits près.
+async function imageHash(source: Blob): Promise<string | null> {
+  try {
+    const bmp = await createImageBitmap(source);
+    const mid = document.createElement('canvas');
+    mid.width = 72;
+    mid.height = 64;
+    const mctx = mid.getContext('2d');
+    const small = document.createElement('canvas');
+    small.width = 9;
+    small.height = 8;
+    const sctx = small.getContext('2d', { willReadFrequently: true });
+    if (!mctx || !sctx) return null;
+    mctx.imageSmoothingQuality = 'high';
+    mctx.drawImage(bmp, 0, 0, 72, 64);
+    sctx.imageSmoothingQuality = 'high';
+    sctx.drawImage(mid, 0, 0, 9, 8);
+    const d = sctx.getImageData(0, 0, 9, 8).data;
+    const lum = (i: number) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    let bits = '';
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        bits += lum((y * 9 + x) * 4) > lum((y * 9 + x + 1) * 4) ? '1' : '0';
+      }
+    }
+    return bits;
+  } catch {
+    return null;
+  }
+}
+
+const hamming = (a: string, b: string) => {
+  let n = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++;
+  return n;
+};
+
+const DUP_MAX = 8; // au plus 8 bits d’écart sur 64 = même photo (photos différentes : 12 et plus)
 
 const formatSize = (b: number) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} Mo` : `${Math.round(b / 1024)} Ko`);
 
@@ -286,7 +327,11 @@ export default function AdminPage() {
   const [price, setPrice] = useState('');
   const [description, setDescription] = useState('');
   const [isUrgent, setIsUrgent] = useState(false);
-  const [images, setImages] = useState<{ id: string; file: File; url: string }[]>([]);
+  const [images, setImages] = useState<{ id: string; file?: File; url: string; existing?: boolean; hash?: string | null }[]>([]);
+  const [checking, setChecking] = useState(false);
+  const hashCache = useRef(new Map<string, string | null>());
+  const savingRef = useRef(false);
+  const [editingId, setEditingId] = useState<number | string | null>(null);
   const [progress, setProgress] = useState('');
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -295,7 +340,7 @@ export default function AdminPage() {
 
   // Libère les aperçus en quittant la page
   useEffect(() => {
-    return () => imagesRef.current.forEach((i) => URL.revokeObjectURL(i.url));
+    return () => imagesRef.current.forEach((i) => !i.existing && URL.revokeObjectURL(i.url));
   }, []);
 
   // Message de confirmation / d'erreur
@@ -327,28 +372,86 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  const addFiles = (list: FileList | File[] | null) => {
-    if (!list) return;
+  // Empreintes de toutes les photos déjà publiées (calculées une fois, puis gardées en mémoire)
+  const getCatalogHashes = async () => {
+    const jobs: { url: string; title: string; productId: Product['id'] }[] = [];
+    for (const p of products) {
+      const urls = p.images && p.images.length > 0 ? p.images : [p.image_url];
+      urls.filter(Boolean).forEach((url) => jobs.push({ url, title: p.title, productId: p.id }));
+    }
+    for (let i = 0; i < jobs.length; i += 6) {
+      await Promise.all(
+        jobs.slice(i, i + 6).map(async (j) => {
+          if (hashCache.current.has(j.url)) return;
+          try {
+            const res = await fetch(j.url);
+            hashCache.current.set(j.url, res.ok ? await imageHash(await res.blob()) : null);
+          } catch {
+            hashCache.current.set(j.url, null);
+          }
+        })
+      );
+    }
+    const entries: { hash: string; title: string; productId: Product['id'] }[] = [];
+    jobs.forEach((j) => {
+      const h = hashCache.current.get(j.url);
+      if (h) entries.push({ hash: h, title: j.title, productId: j.productId });
+    });
+    return entries;
+  };
+
+  const addFiles = async (list: FileList | File[] | null) => {
+    if (!list || checking) return;
     const all = Array.from(list);
     const incoming = all.filter((f) => f.type.startsWith('image/'));
     const room = MAX_IMAGES - images.length;
-    const accepted = incoming.slice(0, Math.max(0, room));
-    if (incoming.length < all.length) setToast({ type: 'err', text: 'Les fichiers qui ne sont pas des images ont été ignorés.' });
-    else if (incoming.length > room) setToast({ type: 'err', text: `Maximum ${MAX_IMAGES} photos par article.` });
-    setImages([
-      ...images,
-      ...accepted.map((file) => ({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        file,
-        url: URL.createObjectURL(file),
-      })),
-    ]);
     if (fileRef.current) fileRef.current.value = '';
+
+    const notes: string[] = [];
+    if (incoming.length < all.length) notes.push('Les fichiers qui ne sont pas des images ont été ignorés.');
+    if (incoming.length > room) notes.push(`Maximum ${MAX_IMAGES} photos par article.`);
+
+    setChecking(true);
+    try {
+      const catalog = await getCatalogHashes();
+      const selected = images
+        .map((i) => (i.existing ? hashCache.current.get(i.url) : i.hash))
+        .filter((h): h is string => !!h);
+      const accepted: { id: string; file: File; url: string; hash: string | null }[] = [];
+
+      for (const file of incoming.slice(0, Math.max(0, room))) {
+        const h = await imageHash(file);
+        if (h) {
+          // déjà utilisée dans un AUTRE article ?
+          const other = catalog.find((c) => c.productId !== editingId && hamming(c.hash, h) <= DUP_MAX);
+          if (other) {
+            notes.push(`Photo refusée : « ${file.name} » est déjà utilisée dans l’article « ${other.title} ».`);
+            continue;
+          }
+          // déjà dans la sélection en cours ?
+          if (selected.some((x) => hamming(x, h) <= DUP_MAX)) {
+            notes.push(`Photo refusée : « ${file.name} » est déjà dans cet article.`);
+            continue;
+          }
+          selected.push(h);
+        }
+        accepted.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          file,
+          url: URL.createObjectURL(file),
+          hash: h,
+        });
+      }
+      if (accepted.length) setImages((prev) => [...prev, ...accepted]);
+    } finally {
+      setChecking(false);
+    }
+    if (notes.length) setToast({ type: 'err', text: notes.join(' ') });
   };
 
   const removeImage = (id: string) => {
     const target = images.find((i) => i.id === id);
-    if (target) URL.revokeObjectURL(target.url);
+    if (target && !target.existing) URL.revokeObjectURL(target.url);
     setImages(images.filter((i) => i.id !== id));
   };
 
@@ -361,30 +464,66 @@ export default function AdminPage() {
   };
 
   const resetForm = () => {
+    setEditingId(null);
     setTitle('');
+    setCategory('table');
     setPrice('');
     setDescription('');
     setIsUrgent(false);
-    images.forEach((i) => URL.revokeObjectURL(i.url));
+    images.forEach((i) => !i.existing && URL.revokeObjectURL(i.url));
     setImages([]);
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  // Charge un article dans le formulaire pour le modifier
+  const startEdit = (p: Product) => {
+    images.forEach((i) => !i.existing && URL.revokeObjectURL(i.url));
+    const urls = p.images && p.images.length > 0 ? p.images : [p.image_url];
+    setImages(urls.map((url, k) => ({ id: `old-${p.id}-${k}`, url, existing: true })));
+    setEditingId(p.id);
+    setTitle(p.title || '');
+    setCategory(p.category === 'deco' ? 'deco' : 'table');
+    setPrice(String(p.price ?? ''));
+    setDescription(p.description || '');
+    setIsUrgent(!!p.is_urgent);
+    setTab('articles');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Nom du fichier dans le stockage Supabase à partir de son adresse publique
+  const storageName = (url: string) => {
+    const marker = '/products-images/';
+    const idx = url.indexOf(marker);
+    return idx >= 0 ? decodeURIComponent(url.slice(idx + marker.length).split('?')[0]) : null;
+  };
+
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    const isEdit = editingId !== null;
     if (!title.trim() || !price || images.length === 0) {
-      setToast({ type: 'err', text: 'Renseignez le titre, le prix et ajoutez au moins une photo.' });
+      setToast({ type: 'err', text: 'Renseignez le titre, le prix et gardez au moins une photo.' });
       return;
     }
+
+    if (savingRef.current) return; // évite deux publications d'un double clic
+    savingRef.current = true;
 
     const uploaded: string[] = [];
     try {
       setSaving(true);
       const urls: string[] = [];
+      const newCount = images.filter((i) => !i.existing).length;
+      let sent = 0;
 
       for (let i = 0; i < images.length; i++) {
-        setProgress(`Envoi de la photo ${i + 1}/${images.length}…`);
-        const optimized = await compressImage(images[i].file);
+        const im = images[i];
+        if (im.existing || !im.file) {
+          urls.push(im.url); // photo déjà en ligne : on la garde telle quelle
+          continue;
+        }
+        sent++;
+        setProgress(`Envoi de la photo ${sent}/${newCount}…`);
+        const optimized = await compressImage(im.file);
         const safeName = optimized.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const fileName = `${Date.now()}-${i}-${safeName}`;
 
@@ -396,23 +535,35 @@ export default function AdminPage() {
         urls.push(publicUrlData.publicUrl);
       }
 
-      setProgress('Publication…');
-      const { error: insertError } = await supabase.from('products').insert([
-        {
-          name: title.trim(), // requis par la contrainte de la base de données
-          title: title.trim(),
-          category,
-          price: Number(price),
-          description: description.trim(),
-          image_url: urls[0], // photo principale (liste, partage WhatsApp)
-          images: urls, // toutes les photos, dans l'ordre choisi
-          is_urgent: isUrgent,
-          is_available: true,
-        },
-      ]);
-      if (insertError) throw insertError;
+      setProgress(isEdit ? 'Enregistrement…' : 'Publication…');
+      const fields = {
+        name: title.trim(), // requis par la contrainte de la base de données
+        title: title.trim(),
+        category,
+        price: Number(price),
+        description: description.trim(),
+        image_url: urls[0], // photo principale (liste, partage WhatsApp)
+        images: urls, // toutes les photos, dans l'ordre choisi
+        is_urgent: isUrgent,
+      };
 
-      setToast({ type: 'ok', text: `« ${title.trim()} » a été publié avec ${urls.length} photo${urls.length > 1 ? 's' : ''}.` });
+      if (isEdit) {
+        const { error: updateError } = await supabase.from('products').update(fields).eq('id', editingId);
+        if (updateError) throw updateError;
+
+        // photos retirées : on les supprime aussi du stockage
+        const original = products.find((p) => p.id === editingId);
+        const before = original ? (original.images && original.images.length > 0 ? original.images : [original.image_url]) : [];
+        const removed = before.filter((u) => !urls.includes(u)).map(storageName).filter((n): n is string => !!n);
+        if (removed.length) await supabase.storage.from('products-images').remove(removed);
+
+        setToast({ type: 'ok', text: `« ${title.trim()} » a été modifié.` });
+      } else {
+        const { error: insertError } = await supabase.from('products').insert([{ ...fields, is_available: true }]);
+        if (insertError) throw insertError;
+        setToast({ type: 'ok', text: `« ${title.trim()} » a été publié avec ${urls.length} photo${urls.length > 1 ? 's' : ''}.` });
+      }
+
       resetForm();
       fetchAdminProducts();
     } catch (err: any) {
@@ -420,8 +571,9 @@ export default function AdminPage() {
       if (uploaded.length) await supabase.storage.from('products-images').remove(uploaded);
       const msg: string = err?.message || 'inconnue';
       const hint = /images/i.test(msg) && /column|schema/i.test(msg) ? ' — exécutez d’abord multi-images.sql dans Supabase.' : '';
-      setToast({ type: 'err', text: 'Erreur lors de l’ajout : ' + msg + hint });
+      setToast({ type: 'err', text: (isEdit ? 'Erreur lors de la modification : ' : 'Erreur lors de l’ajout : ') + msg + hint });
     } finally {
+      savingRef.current = false;
       setSaving(false);
       setProgress('');
     }
@@ -443,6 +595,7 @@ export default function AdminPage() {
     if (!confirm(`Supprimer définitivement « ${p.title} » ?`)) return;
     const { error } = await supabase.from('products').delete().eq('id', p.id);
     if (error) return setToast({ type: 'err', text: 'Suppression impossible : ' + error.message });
+    if (editingId === p.id) resetForm();
     setToast({ type: 'ok', text: 'Article supprimé.' });
     fetchAdminProducts();
   };
@@ -456,6 +609,7 @@ export default function AdminPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-[#FAF6F0] via-[#F1E6DA] to-[#E8D8C8] flex items-center justify-center p-4">
         <form onSubmit={handleLogin} className="bg-white/90 backdrop-blur p-8 sm:p-10 rounded-3xl shadow-xl border border-white max-w-md w-full">
+          <img src="/logo.jpg" alt="Logo Sandja Handmade" width={96} height={96} className="w-24 h-24 rounded-full object-cover mx-auto mb-4 shadow-lg ring-4 ring-white" />
           <p className="font-serif text-3xl font-bold text-[#1C1917] text-center">Sandja Handmade</p>
           <p className="text-center text-sm text-stone-500 mt-1 mb-8">Espace d’administration</p>
 
@@ -507,9 +661,12 @@ export default function AdminPage() {
 
       <header className="bg-white border-b border-stone-200 sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div>
-            <span className="font-serif text-xl font-bold text-[#1C1917]">Sandja Handmade</span>
-            <span className="ml-3 text-xs text-stone-500 hidden sm:inline">Administration</span>
+          <div className="flex items-center gap-3">
+            <img src="/logo.jpg" alt="Logo Sandja Handmade" width={40} height={40} className="w-10 h-10 rounded-full object-cover ring-2 ring-[#C85A32]/30" />
+            <div>
+              <span className="font-serif text-lg sm:text-xl font-bold text-[#1C1917]">Sandja Handmade</span>
+              <span className="ml-3 text-xs text-stone-500 hidden sm:inline">Administration</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <a href="/" target="_blank" rel="noopener noreferrer" className="text-xs font-semibold px-4 py-2 rounded-lg border border-stone-300 hover:bg-stone-100 transition">
@@ -566,9 +723,20 @@ export default function AdminPage() {
         <div className="grid lg:grid-cols-5 gap-6 mb-12">
           <form onSubmit={handleAddProduct} className="lg:col-span-3 bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-stone-200 space-y-5">
             <div>
-              <h2 className="font-serif text-2xl font-bold text-[#1C1917]">Ajouter un article</h2>
+              <h2 className="font-serif text-2xl font-bold text-[#1C1917]">{editingId !== null ? 'Modifier l’article' : 'Ajouter un article'}</h2>
               <p className="text-sm text-stone-500 mt-1">L’aperçu à droite montre l’article tel que vos clients le verront.</p>
             </div>
+
+            {editingId !== null && (
+              <div className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 text-sm">
+                <span>
+                  Vous modifiez <strong>« {title || 'cet article'} »</strong>. Rien n’est changé sur le site avant d’enregistrer.
+                </span>
+                <button type="button" onClick={resetForm} className="shrink-0 text-xs font-semibold underline">
+                  Annuler
+                </button>
+              </div>
+            )}
 
             {/* Photos de l'article */}
             <div>
@@ -576,7 +744,7 @@ export default function AdminPage() {
                 <label className={labelCls}>
                   Photos de l’article * <span className="font-normal text-stone-400">(vue d’ensemble, puis détails)</span>
                 </label>
-                {images.length > 0 && <span className="text-xs text-stone-500 shrink-0">{images.length}/{MAX_IMAGES}</span>}
+                <span className="text-xs text-stone-500 shrink-0">{checking ? 'Vérification des doublons…' : images.length > 0 ? `${images.length}/${MAX_IMAGES}` : ''}</span>
               </div>
               <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
 
@@ -677,9 +845,16 @@ export default function AdminPage() {
               </span>
             </label>
 
-            <button type="submit" disabled={saving} className="w-full bg-[#C85A32] text-white py-3.5 rounded-xl font-semibold text-sm hover:bg-[#b04b25] disabled:opacity-60 disabled:cursor-not-allowed transition">
-              {saving ? progress || 'Publication en cours…' : 'Publier l’article'}
-            </button>
+            <div className="flex flex-col-reverse sm:flex-row gap-3">
+              {editingId !== null && (
+                <button type="button" onClick={resetForm} disabled={saving} className="sm:w-1/3 border border-stone-300 text-stone-700 py-3.5 rounded-xl font-semibold text-sm hover:bg-stone-100 transition disabled:opacity-60">
+                  Annuler
+                </button>
+              )}
+              <button type="submit" disabled={saving} className="flex-1 bg-[#C85A32] text-white py-3.5 rounded-xl font-semibold text-sm hover:bg-[#b04b25] disabled:opacity-60 disabled:cursor-not-allowed transition">
+                {saving ? progress || 'Enregistrement en cours…' : editingId !== null ? 'Enregistrer les modifications' : 'Publier l’article'}
+              </button>
+            </div>
           </form>
 
           {/* Aperçu côté client */}
@@ -699,7 +874,7 @@ export default function AdminPage() {
                   </div>
                   <p className="text-xs text-[#C85A32] font-semibold mb-2">{CAT_LABEL[category]}</p>
                   <p className="text-stone-500 text-xs leading-relaxed min-h-[2.5rem]">{description || 'La description apparaîtra ici.'}</p>
-                  <div className="mt-4 bg-stone-900 text-white text-center py-3 rounded-xl text-xs font-semibold">💬 Je suis intéressé(e)</div>
+                  <div className="mt-4 bg-stone-900 text-white py-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2"><WhatsAppIcon className="w-4 h-4" /> Je suis intéressé(e)</div>
                 </div>
               </div>
             </div>
@@ -744,6 +919,14 @@ export default function AdminPage() {
                     className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${p.is_urgent ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-white text-stone-500 border-stone-300 hover:border-stone-400'}`}
                   >
                     ⚡ {p.is_urgent ? 'Urgent' : 'Normal'}
+                  </button>
+                  <button
+                    onClick={() => startEdit(p)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                      editingId === p.id ? 'bg-[#C85A32] text-white border-[#C85A32]' : 'bg-white text-[#C85A32] border-[#C85A32]/40 hover:bg-[#C85A32]/5'
+                    }`}
+                  >
+                    ✎ Modifier
                   </button>
                   <a href={`/produit/${p.id}`} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-xs font-semibold text-stone-600 hover:text-[#C85A32] transition">
                     Voir la fiche

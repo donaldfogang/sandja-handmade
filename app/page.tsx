@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import SplashScreen from './SplashScreen';
 import { track } from './lib/track';
 import ImageCarousel from './ImageCarousel';
+import { WhatsAppIcon, FacebookIcon, TikTokIcon, MessengerIcon, PhoneIcon, MailIcon } from './Icons';
 
 // --- CONFIGURATION SUPABASE ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -139,12 +140,17 @@ export default function Home() {
         {/* 1. HEADER */}
         <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-stone-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-            <a href="#" className="flex flex-col leading-tight">
-              <span className="font-serif text-xl sm:text-2xl font-bold tracking-tight text-[#1C1917]">
-                Sandja Handmade
-              </span>
-              <span className="text-[10px] sm:text-xs uppercase tracking-widest text-[#C85A32] font-medium">
-                Art & Motifs Africains
+            <a href="#" className="flex items-center gap-3" aria-label="Sandja Handmade – accueil">
+              <img
+                src="/logo.jpg"
+                alt="Logo Sandja Handmade"
+                width={48}
+                height={48}
+                className="w-11 h-11 sm:w-12 sm:h-12 rounded-full object-cover ring-2 ring-[#C85A32]/30 shadow-sm shrink-0"
+              />
+              <span className="flex flex-col leading-tight">
+                <span className="font-serif text-lg sm:text-2xl font-bold tracking-tight text-[#1C1917]">Sandja Handmade</span>
+                <span className="text-[10px] sm:text-xs uppercase tracking-widest text-[#C85A32] font-medium">Art & Motifs Africains</span>
               </span>
             </a>
 
@@ -166,9 +172,9 @@ export default function Home() {
                 onClick={() => track('whatsapp_general', { label: 'en-tête' })}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`bg-[#25D366] text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-emerald-600 transition shadow-sm ${focusRing}`}
+                className={`inline-flex items-center gap-2 bg-[#25D366] text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-emerald-600 transition shadow-sm ${focusRing}`}
               >
-                💬 Discuter
+                <WhatsAppIcon className="w-4 h-4" /> Discuter
               </a>
               <button
                 type="button"
@@ -321,7 +327,7 @@ export default function Home() {
                       rel="noopener noreferrer"
                       className={`w-full flex items-center justify-center gap-2 bg-stone-900 hover:bg-[#25D366] text-white py-3 px-4 rounded-xl text-xs font-semibold tracking-wide transition duration-300 shadow-sm ${focusRing}`}
                     >
-                      💬 Je suis intéressé(e)
+                      <WhatsAppIcon className="w-4 h-4" /> Je suis intéressé(e)
                     </a>
                   </div>
                 </div>
@@ -424,7 +430,7 @@ export default function Home() {
                         rel="noopener noreferrer"
                         className={`w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white py-3 px-4 rounded-xl text-xs font-semibold tracking-wide transition shadow-sm ${focusRing}`}
                       >
-                        ⚡ Réserver en urgence via WhatsApp
+                        <WhatsAppIcon className="w-4 h-4" /> Réserver en urgence via WhatsApp
                       </a>
                     </div>
                   </div>
@@ -472,60 +478,69 @@ export default function Home() {
         <footer id="contact" className="bg-[#1C1917] text-stone-400 py-16 px-4 scroll-mt-20">
           <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
             <div>
-              <h4 className="font-serif text-2xl text-white font-bold mb-4">Sandja Handmade</h4>
+              <div className="flex items-center gap-4 mb-4">
+                <img src="/logo.jpg" alt="Logo Sandja Handmade" width={56} height={56} className="w-14 h-14 rounded-full object-cover ring-2 ring-white/15" />
+                <h4 className="font-serif text-2xl text-white font-bold">Sandja Handmade</h4>
+              </div>
               <p className="text-sm leading-relaxed mb-6">
                 Sublimer le patrimoine textile et faire rayonner les motifs africains à travers des créations
                 artisanales uniques. (Délai standard : 12 jours).
               </p>
-              <div className="flex items-center gap-3 text-sm font-medium">
+              <div className="flex flex-wrap items-center gap-3 text-sm font-medium">
                 <a
                   href={CONTACT_INFO.facebook}
-                  onClick={() => track('social_click', { label: 'Facebook' })}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-4 py-2 rounded-full border border-stone-700 text-white hover:border-[#C85A32] hover:text-[#C85A32] transition"
+                  onClick={() => track('social_click', { label: 'Facebook' })}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-stone-700 text-white hover:border-[#1877F2] hover:bg-[#1877F2]/10 transition"
                 >
-                  Facebook
+                  <FacebookIcon className="w-5 h-5 text-[#1877F2]" /> Facebook
                 </a>
                 <a
                   href={CONTACT_INFO.tiktok}
-                  onClick={() => track('social_click', { label: 'TikTok' })}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-4 py-2 rounded-full border border-stone-700 text-white hover:border-[#C85A32] hover:text-[#C85A32] transition"
+                  onClick={() => track('social_click', { label: 'TikTok' })}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-stone-700 text-white hover:border-white hover:bg-white/10 transition"
                 >
-                  TikTok
+                  <TikTokIcon className="w-5 h-5 text-white" /> TikTok
+                </a>
+                <a
+                  href={CONTACT_INFO.messengerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => track('social_click', { label: 'Messenger' })}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-stone-700 text-white hover:border-[#0084FF] hover:bg-[#0084FF]/10 transition"
+                >
+                  <MessengerIcon className="w-5 h-5 text-[#0084FF]" /> Messenger
                 </a>
               </div>
             </div>
 
             <div>
-              <h5 className="text-white font-semibold mb-4 text-sm uppercase tracking-wider">Coordonnées directes</h5>
-              <ul className="space-y-3 text-sm">
+              <h5 className="text-white font-semibold mb-5 text-sm uppercase tracking-wider">Coordonnées directes</h5>
+              <ul className="space-y-4 text-sm">
                 <li>
-                  📞{' '}
-                  <a href={`tel:${CONTACT_INFO.phone.replace(/\s/g, '')}`} className="hover:text-white transition">
+                  <a href={`tel:${CONTACT_INFO.phone.replace(/\s/g, '')}`} className="flex items-center gap-3 hover:text-white transition">
+                    <span className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center text-[#E8855F] shrink-0">
+                      <PhoneIcon className="w-4 h-4" />
+                    </span>
                     {CONTACT_INFO.phone}
                   </a>
                 </li>
                 <li>
-                  ✉️{' '}
-                  <a href={`mailto:${CONTACT_INFO.email}`} className="hover:text-white transition break-all">
+                  <a href={`mailto:${CONTACT_INFO.email}`} className="flex items-center gap-3 hover:text-white transition break-all">
+                    <span className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center text-[#E8855F] shrink-0">
+                      <MailIcon className="w-4 h-4" />
+                    </span>
                     {CONTACT_INFO.email}
-                  </a>
-                </li>
-                <li>
-                  💬 Messenger :{' '}
-                  <a href={CONTACT_INFO.messengerUrl}
-                  onClick={() => track('social_click', { label: 'Messenger' })} target="_blank" rel="noopener noreferrer" className="hover:text-white transition">
-                    {CONTACT_INFO.messenger}
                   </a>
                 </li>
               </ul>
             </div>
 
             <div>
-              <h5 className="text-white font-semibold mb-4 text-sm uppercase tracking-wider">Commande rapide</h5>
+              <h5 className="text-white font-semibold mb-5 text-sm uppercase tracking-wider">Commande rapide</h5>
               <p className="text-sm mb-4">Discutez immédiatement de vos projets sur WhatsApp :</p>
               <a
                 href={`https://wa.me/${CONTACT_INFO.whatsapp}?text=Bonjour,%20je%20souhaite%20commander%20une%20création`}
@@ -534,7 +549,7 @@ export default function Home() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center gap-2 bg-[#25D366] hover:bg-emerald-600 text-white w-full py-3 rounded-xl font-medium transition text-sm shadow-md"
               >
-                💬 Ouvrir la discussion WhatsApp
+                <WhatsAppIcon className="w-5 h-5" /> Ouvrir la discussion WhatsApp
               </a>
             </div>
           </div>
@@ -550,9 +565,9 @@ export default function Home() {
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Discuter sur WhatsApp"
-          className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-40 w-14 h-14 rounded-full bg-[#25D366] hover:bg-emerald-600 text-white text-2xl flex items-center justify-center shadow-lg transition"
+          className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-40 w-14 h-14 rounded-full bg-[#25D366] hover:bg-emerald-600 text-white flex items-center justify-center shadow-lg transition"
         >
-          💬
+          <WhatsAppIcon className="w-7 h-7" />
         </a>
       </div>
     </>

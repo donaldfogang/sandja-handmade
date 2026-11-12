@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 import { TrackedLink, ViewTracker } from '../../TrackedLink';
 import ImageCarousel from '../../ImageCarousel';
+import { WhatsAppIcon } from '../../Icons';
 
 // Toujours des données fraîches (prix, disponibilité)
 export const dynamic = 'force-dynamic';
@@ -68,8 +69,9 @@ export default async function ProductPage({ params }: Props) {
     <div className="min-h-screen bg-[#FAF8F5] text-stone-800 font-sans antialiased flex flex-col">
       <header className="bg-white/90 backdrop-blur-md border-b border-stone-200">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="font-serif text-xl font-bold text-[#1C1917]">
-            Sandja Handmade
+          <Link href="/" className="flex items-center gap-3">
+            <img src="/logo.jpg" alt="Logo Sandja Handmade" width={40} height={40} className="w-10 h-10 rounded-full object-cover ring-2 ring-[#C85A32]/30" />
+            <span className="font-serif text-lg sm:text-xl font-bold text-[#1C1917]">Sandja Handmade</span>
           </Link>
           <Link href="/#catalogue" className="text-sm font-medium text-stone-600 hover:text-[#C85A32] transition">
             Toutes les créations
@@ -106,7 +108,7 @@ export default async function ProductPage({ params }: Props) {
     <>
     <ViewTracker productId={p.id} label={p.title} />
     <article className="bg-white rounded-3xl border border-stone-200 shadow-md overflow-hidden grid md:grid-cols-2">
-      <ImageCarousel images={gallery} alt={p.title} className="aspect-[4/3] md:aspect-auto md:h-full md:min-h-[480px]">
+      <ImageCarousel images={gallery} alt={p.title} fit="contain" className="aspect-[4/3] md:aspect-auto md:h-full md:min-h-[480px]">
         <span
           className={`absolute top-4 left-4 text-[11px] font-bold px-3 py-1 rounded-full shadow ${
             p.is_urgent ? 'bg-amber-600 text-white' : 'bg-stone-900/80 text-white backdrop-blur-sm'
@@ -138,7 +140,7 @@ export default async function ProductPage({ params }: Props) {
             label={p.title}
             className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-emerald-600 text-white py-3.5 px-6 rounded-xl text-sm font-semibold transition shadow-sm"
           >
-            💬 Continuer sur WhatsApp
+            <WhatsAppIcon className="w-5 h-5" /> Continuer sur WhatsApp
           </TrackedLink>
           <Link
             href="/#catalogue"
