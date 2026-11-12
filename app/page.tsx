@@ -6,6 +6,8 @@ import SplashScreen from './SplashScreen';
 import { track } from './lib/track';
 import ImageCarousel from './ImageCarousel';
 import RichDescription from './RichDescription';
+import AboutSection from './AboutSection';
+import ReviewsSection, { type Review } from './ReviewsSection';
 import { WhatsAppIcon, FacebookIcon, TikTokIcon, MessengerIcon, PhoneIcon, MailIcon } from './Icons';
 
 // --- CONFIGURATION SUPABASE ---
@@ -50,6 +52,8 @@ const NAV = [
   { href: '#catalogue', label: 'Créations' },
   { href: '#urgence', label: '⚡ Packs d’Urgence', accent: true },
   { href: '#concept', label: 'Savoir-faire' },
+  { href: '#apropos', label: 'L’artisane' },
+  { href: '#avis', label: 'Avis' },
   { href: '#contact', label: 'Contact' },
 ];
 
@@ -76,11 +80,24 @@ export default function Home() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(true);
+  const [reviews, setReviews] = useState<Review[]>([]);
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
 
   // Chargement des produits (le splash se retire quand `loading` passe à false)
   useEffect(() => {
     fetchProducts();
+  }, []);
+
+  // Avis clients (la section reste cachée tant qu'il n'y en a pas)
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from('reviews')
+        .select('*')
+        .eq('is_visible', true)
+        .order('created_at', { ascending: false });
+      if (!error && data) setReviews(data as Review[]);
+    })();
   }, []);
 
   // Comptage de la visite (une fois par session)
@@ -168,7 +185,7 @@ export default function Home() {
               </span>
             </a>
 
-            <nav className="hidden md:flex items-center space-x-8 text-sm font-medium text-stone-700">
+            <nav className="hidden lg:flex items-center space-x-6 xl:space-x-8 text-sm font-medium text-stone-700">
               {NAV.map((l) => (
                 <a
                   key={l.href}
@@ -195,7 +212,7 @@ export default function Home() {
                 onClick={() => setMenuOpen((o) => !o)}
                 aria-label={menuOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
                 aria-expanded={menuOpen}
-                className={`md:hidden w-10 h-10 rounded-full border border-stone-300 flex items-center justify-center ${focusRing}`}
+                className={`lg:hidden w-10 h-10 rounded-full border border-stone-300 flex items-center justify-center ${focusRing}`}
               >
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#1C1917" strokeWidth="1.8" strokeLinecap="round">
                   {menuOpen ? (
@@ -209,7 +226,7 @@ export default function Home() {
           </div>
 
           {menuOpen && (
-            <nav className="md:hidden border-t border-stone-200 bg-white px-4 py-3 flex flex-col">
+            <nav className="lg:hidden border-t border-stone-200 bg-white px-4 py-3 flex flex-col">
               {NAV.map((l) => (
                 <a
                   key={l.href}
@@ -494,7 +511,13 @@ export default function Home() {
           </div>
         </section>
 
-        {/* 6. FOOTER */}
+        {/* 6. L'ARTISANE */}
+        <AboutSection whatsapp={CONTACT_INFO.whatsapp} onContact={() => track('whatsapp_general', { label: 'profil' })} />
+
+        {/* 7. AVIS CLIENTS */}
+        <ReviewsSection reviews={reviews} />
+
+        {/* 8. FOOTER */}
         <footer id="contact" className="bg-[#1C1917] text-stone-400 py-16 px-4 scroll-mt-20">
           <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12">
             <div>

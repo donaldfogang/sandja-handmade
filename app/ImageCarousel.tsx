@@ -19,7 +19,7 @@ const Chevron = ({ dir }: { dir: 'left' | 'right' }) => (
 );
 
 /* ---------- Visionneuse plein écran : l'image entière, avec une croix pour fermer ---------- */
-function Lightbox({ images, start, alt, onClose }: { images: string[]; start: number; alt: string; onClose: () => void }) {
+export function Lightbox({ images, start, alt, onClose }: { images: string[]; start: number; alt: string; onClose: () => void }) {
   const [i, setI] = useState(start);
   const count = images.length;
   const touchX = useRef<number | null>(null);
@@ -112,6 +112,12 @@ function Lightbox({ images, start, alt, onClose }: { images: string[]; start: nu
       )}
     </div>
   );
+}
+
+/** Visionneuse plein écran affichée au-dessus de toute la page (réutilisable : avis clients, etc.) */
+export function LightboxPortal(props: { images: string[]; start: number; alt: string; onClose: () => void }) {
+  if (typeof document === 'undefined') return null;
+  return createPortal(<Lightbox {...props} />, document.body);
 }
 
 /* ---------- Carrousel ---------- */
@@ -248,8 +254,7 @@ export default function ImageCarousel({ images, alt, className = 'aspect-[4/3]',
 
       {children}
 
-      {zoom !== null && typeof document !== 'undefined' &&
-        createPortal(<Lightbox images={list} start={zoom} alt={alt} onClose={() => setZoom(null)} />, document.body)}
+      {zoom !== null && <LightboxPortal images={list} start={zoom} alt={alt} onClose={() => setZoom(null)} />}
     </div>
   );
 }
